@@ -1,0 +1,35 @@
+{
+    "n2v": {
+        "reserved_for_testing_non_existant_object": -32766,
+        "egp_physics.gc_type_mGC": -2,
+        "egp_physics.gc_type_eGC": -1,
+        "builtins_NoneType": 0,
+        "builtins_bool": 1,
+        "builtins_complex": 4,
+        "builtins_float": 3,
+        "builtins_int": 2,
+        "builtins_str": 5
+    },
+    "v2n": {
+        "-32766": "reserved_for_testing_non_existant_object",
+        "-2": "egp_physics.gc_type_mGC",
+        "-1": "egp_physics.gc_type_eGC",
+        "0": "builtins_NoneType",
+        "1": "builtins_bool",
+        "2": "builtins_int",
+        "3": "builtins_float",
+        "4": "builtins_complex",
+        "5": "builtins_str"
+    },
+    "instanciation": {
+        "-32766": [null, null, "reserved_for_testing", "non_existant_object", "null"],
+        "-2": ["egp_physics", null, "gc_type", "mGC", null],
+        "-1": ["egp_physics", null, "gc_type", "eGC", null],
+        "0": [null, null, null, "None", null],
+        "1": [null, null, null, "bool", true],
+        "2": [null, null, null, "int", true],
+        "3": [null, null, null, "float", true],
+        "4": [null, null, null, "complex", true],
+        "5": [null, null, null, "str", true]
+    }
+}
