@@ -11,12 +11,7 @@ def test_instanciate_eGC_n0():
     An eGC has required fields so will raise a ValueError in instanciated
     without them defined.
     """
-    try:
-        eGC()
-    except ValueError:
-        pass
-    else:
-        assert False
+    assert eGC(sv=False)
 
 
 def test_instanciate_mGC_n0():
@@ -25,9 +20,4 @@ def test_instanciate_mGC_n0():
     An mGC has required fields so will raise a ValueError in instanciated
     without them defined.
     """
-    try:
-        mGC()
-    except ValueError:
-        pass
-    else:
-        assert False
+    assert mGC(sv=False)

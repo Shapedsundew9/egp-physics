@@ -34,16 +34,16 @@ GC Type Field Requirements
 | gcb | :large_blue_circle: |  |  |
 | generation | :large_blue_circle: |  |  |
 | graph | :black_circle: |  |  |
-| input_types | :large_blue_circle: |  |  |
-| inputs | :large_blue_circle: |  |  |
+| input_types | :large_blue_circle: | :black_circle: | :black_circle: |
+| inputs | :large_blue_circle: | :black_circle: | :black_circle: |
 | meta_data | :large_blue_circle: |  |  |
 | num_codes | :large_blue_circle: |  |  |
 | num_inputs | :large_blue_circle: |  |  |
 | num_outputs | :large_blue_circle: |  |  |
 | num_unique_codes | :large_blue_circle: |  |  |
 | opt_num_codons | :large_blue_circle: |  |  |
-| output_types | :large_blue_circle: |  |  |
-| outputs | :large_blue_circle: |  |  |
+| output_types | :large_blue_circle: | :black_circle: | :black_circle: |
+| outputs | :large_blue_circle: | :black_circle: | :black_circle: |
 | pgc | :large_blue_circle: |  |  |
 | properties | :large_blue_circle: |  |  |
 | raw_num_codons | :large_blue_circle: |  |  |

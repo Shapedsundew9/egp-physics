@@ -174,6 +174,7 @@ def test_asstr_objects(obj, ep_type_str):
         ("8", "builtins_int"),
         ("str(8)", "builtins_str"),
         ("bytes()", INVALID_EP_TYPE_NAME),
+        ("invalid()", INVALID_EP_TYPE_NAME),
         ("gc_type_eGC()", "egp_physics.gc_type_eGC"),
         ("{}", INVALID_EP_TYPE_NAME)
     )
@@ -195,6 +196,11 @@ def test_asstr_ep_type_str_instances(string, ep_type_str):
 def test_asstr_ep_type_values(value, ep_type_str):
     """Confirm asstr() of EP type names is correct."""
     assert asstr(value) == ep_type_str
+
+
+def test_asstr_ep_type_str():
+    """Confirm asstr() of EP type names strings is correct."""
+    assert asstr("builtins_int", vtype.EP_TYPE_STR) == "builtins_int"
 
 
 def test_import_str():

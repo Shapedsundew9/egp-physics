@@ -51,7 +51,16 @@ class inst(IntEnum):
 
 
 class vtype(IntEnum):
-    """Validation type to use in validate()."""
+    """Validation type to use in validate().
+
+    An objects EP type is determined by how the object is interpreted. There are
+    5 possible interpretations:
+        vtype.EP_TYPE_INT: object is an int and represents an EP type.
+        vtype.EP_TYPE_STR: object is a str and represents an EP type.
+        vtype.INSTANCE_STR: object is a valid EP type name str.
+        vtype.OBJECT: object is a valid EP type object
+        vtype.TYPE_OBJECT: object is a type object of the object EP type.
+    """
 
     EP_TYPE_INT = 0
     EP_TYPE_STR = 1
@@ -78,10 +87,11 @@ def import_str(ep_type_int):
     return f'from {package}{i[inst.MODULE]} import {i[inst.NAME]} as {i[inst.MODULE]}_{i[inst.NAME]}'
 
 
-# TODO: Move this into validate or a function for asint & asstr too. Get rid of circular import.
-# Import all types.
-# If a type does not exist on this system remove it (all instance will be reteated as INVALID)
-for ep_type_int, data in tuple(filter(lambda x: x[1][inst.MODULE] is not None, ep_type_lookup['instanciation'].items())):
+# If a type does not exist on this system remove it (all instances will be treated as INVALID)
+# NOTE: This would cause a circular dependency with gc_type if GC types were not filtered out
+# We can assume GC types will be defined for the contexts they are used.
+func = lambda x: x[1][inst.MODULE] is not None and x[1][inst.MODULE] != 'gc_type'
+for ep_type_int, data in tuple(filter(func, ep_type_lookup['instanciation'].items())):
     try:
         exec(import_str(ep_type_int))
     except ModuleNotFoundError:
@@ -92,6 +102,10 @@ for ep_type_int, data in tuple(filter(lambda x: x[1][inst.MODULE] is not None, e
     else:
         _logger.info(import_str(ep_type_int))
 
+_GC_TYPE_NAMES = []
+func = lambda x: x[inst.MODULE] is not None and x[inst.MODULE] == 'gc_type'
+for i in tuple(filter(func, ep_type_lookup['instanciation'].values())):
+    _GC_TYPE_NAMES.append(f'{i[inst.MODULE]}_{i[inst.NAME]}')
 
 # Must be defined after the imports
 EP_TYPE_NAMES = set(ep_type_lookup['n2v'].keys())
@@ -101,17 +115,14 @@ EP_TYPE_VALUES = set(ep_type_lookup['v2n'].keys())
 def validate(obj, vt=vtype.EP_TYPE_INT):
     """Validate an object as an EP type.
 
-    The type of validation is specified by vt and may take one of 5 values:
-        vtype.EP_TYPE_INT: object is an int and represents an EP type.
-        vtype.EP_TYPE_STR: object is a str and represents an EP type.
-        vtype.INSTANCE_STR: object is a valid python code str instanciating an object.
-        vtype.OBJECT: object is an object
-        vtype.TYPE_OBJECT: object is a type object of the type to be validated.
+    NOTE: GC types e.g. eGC, mGC etc. cannot be instance strings as they would require
+    a circular import. However, since GC types are under the full control of EGP there
+    should be no need to try and introspect an instance string for a GC type.
 
     Args
     ----
     object (object): See description above.
-    vt (IntEnum): See description above.
+    vt (vtype): The interpretation of the object. See vtype definition.:
 
     Returns
     -------
@@ -122,8 +133,12 @@ def validate(obj, vt=vtype.EP_TYPE_INT):
     if vt == vtype.OBJECT:
         return fully_qualified_name(obj) in EP_TYPE_NAMES
     if vt == vtype.INSTANCE_STR:
-        # TODO: try on nameerror do the inport
-        return fully_qualified_name(eval(obj)) in EP_TYPE_NAMES
+        try:
+            name = fully_qualified_name(eval(obj))
+        except NameError:
+            #If it looks like a GC type instanciation assume it is OK.
+            return any([x + '(' in obj for x in _GC_TYPE_NAMES])
+        return name in EP_TYPE_NAMES
     if vt == vtype.EP_TYPE_STR:
         return obj != INVALID_EP_TYPE_NAME and obj in EP_TYPE_NAMES
     return obj != INVALID_EP_TYPE_VALUE and obj in EP_TYPE_VALUES
@@ -132,17 +147,14 @@ def validate(obj, vt=vtype.EP_TYPE_INT):
 def asint(obj, vt=vtype.EP_TYPE_STR):
     """Return the EP type value for an object.
 
-    The interpretation of the object is specified by vt and may take one of 5 values:
-        vtype.EP_TYPE_INT: object is an int and represents an EP type.
-        vtype.EP_TYPE_STR: object is a str and represents an EP type.
-        vtype.INSTANCE_STR: object is a valid EP type name str.
-        vtype.OBJECT: object is an object
-        vtype.TYPE_OBJECT: object is a type object of the type to be validated.
+    NOTE: GC types e.g. eGC, mGC etc. cannot be instance strings as they would require
+    a circular import. However, since GC types are under the full control of EGP there
+    should be no need to try and introspect an instance string for a GC type.
 
     Args
     ----
     object (object): See description above.
-    vt (IntEnum): See description above.
+    vt (vtype): The interpretation of the object. See vtype definition.:
 
     Returns
     -------
@@ -153,25 +165,33 @@ def asint(obj, vt=vtype.EP_TYPE_STR):
     if vt == vtype.OBJECT:
         return ep_type_lookup['n2v'].get(fully_qualified_name(obj), INVALID_EP_TYPE_VALUE)
     if vt == vtype.INSTANCE_STR:
-        return ep_type_lookup['n2v'].get(fully_qualified_name(eval(obj)), INVALID_EP_TYPE_VALUE)
+        try:
+            ep_type_name = fully_qualified_name(eval(obj))
+        except NameError:
+            #If it looks like a GC type instanciation assume it is OK.
+            ep_type_name = INVALID_EP_TYPE_NAME
+            for x in _GC_TYPE_NAMES:
+                if x + '(' in obj:
+                    ep_type_name = 'egp_physics.' + x
+                    break
+        return ep_type_lookup['n2v'].get(ep_type_name, INVALID_EP_TYPE_VALUE)
     if vt == vtype.EP_TYPE_STR:
         return ep_type_lookup['n2v'].get(obj, INVALID_EP_TYPE_VALUE)
+    return obj
 
 
 def asstr(obj, vt=vtype.EP_TYPE_INT):
     """Return the EP type string for an object.
 
-    The interpretation of the object is specified by vt and may take one of 5 values:
-        vtype.EP_TYPE_INT: object is an int and represents an EP type.
-        vtype.EP_TYPE_STR: object is a str and represents an EP type.
-        vtype.INSTANCE_STR: object is a valid EP type name str.
-        vtype.OBJECT: object is an object
-        vtype.TYPE_OBJECT: object is a type object of the type to be validated.
+    NOTE: GC types e.g. eGC, mGC etc. cannot be instance strings as they would require
+    a circular import. However, since GC types are under the full control of EGP there
+    should be no need to try and introspect an instance string for a GC type.
 
     Args
     ----
     object (object): See description above.
-    vt (IntEnum): See description above.
+    vt (vtype): The interpretation of the object. See vtype definition.:
+
 
     Returns
     -------
@@ -184,10 +204,18 @@ def asstr(obj, vt=vtype.EP_TYPE_INT):
         ep_type_name = fully_qualified_name(obj)
         return ep_type_name if ep_type_name in EP_TYPE_NAMES else INVALID_EP_TYPE_NAME
     if vt == vtype.INSTANCE_STR:
-        ep_type_name = fully_qualified_name(eval(obj))
+        try:
+            ep_type_name = fully_qualified_name(eval(obj))
+        except NameError:
+            #If it looks like a GC type instanciation assume it is OK.
+            for x in _GC_TYPE_NAMES:
+                if x + '(' in obj:
+                    return 'egp_physics.' + x
+            return INVALID_EP_TYPE_NAME
         return ep_type_name if ep_type_name in EP_TYPE_NAMES else INVALID_EP_TYPE_NAME
     if vt == vtype.EP_TYPE_INT:
         return ep_type_lookup['v2n'].get(obj, INVALID_EP_TYPE_NAME)
+    return obj
 
 
 def fully_qualified_name(obj):
@@ -254,30 +282,3 @@ def instance_str(ep_type_int, param_str=''):
     if ep_type_lookup['instanciation'][ep_type_int][inst.PARAM] is not None:
         inst_str += f'({param_str})'
     return inst_str
-
-
-def interface_definition(xputs, vt=vtype.TYPE_OBJECT):
-    """Create an interface definition from xputs.
-
-    Used to define the inputs or outputs of a GC from an iterable
-    of types, objects or EP definitions.
-
-    Args
-    ----
-    xputs (iterable(object)): Object is of the type defined by vt.
-    vt (vtype): The interpretation of the object is specified by vt and may take one of 5 values:
-        vtype.EP_TYPE_INT: object is an int and represents an EP type.
-        vtype.EP_TYPE_STR: object is a str and represents an EP type.
-        vtype.INSTANCE_STR: object is a valid EP type name str.
-        vtype.OBJECT: object is an object
-        vtype.TYPE_OBJECT: object is a type object of the type to be validated.
-
-    Returns
-    -------
-    tuple(list(ep_type_int), list(ep_type_int), list(int)): A list of the xputs as EP type in value
-        format, a list of the EP types in xputs in value format in ascending order and a list of
-        indexes into it in the order of xputs.
-    """
-    xput_eps = tuple((asint(x, vt) for x in xputs))
-    xput_types = sorted(set(xput_eps)),
-    return xput_eps, xput_types, [xput_types.index(x) for x in xputs]

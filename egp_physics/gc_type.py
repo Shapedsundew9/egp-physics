@@ -16,7 +16,9 @@ Type instances are 'only' self consistent. For population consistency
 checks see the relevant collections e.g. genomic_library, gene_pool
 """
 
-from .generic_validator import SCHEMA, generic_validator
+from .generic_validator import SCHEMA, generic_validator, random_reference
+from .ep_type import vtype, asint
+from .gc_graph import gc_graph
 from copy import deepcopy
 
 
@@ -62,6 +64,28 @@ def _get_schema(t):
     return schema
 
 
+def interface_definition(xputs, vt=vtype.TYPE_OBJECT):
+    """Create an interface definition from xputs.
+
+    Used to define the inputs or outputs of a GC from an iterable
+    of types, objects or EP definitions.
+
+    Args
+    ----
+    xputs (iterable(object)): Object is of the type defined by vt.
+    vt (vtype): The interpretation of the object. See definition of vtype.
+
+    Returns
+    -------
+    tuple(list(ep_type_int), list(ep_type_int), list(int)): A list of the xputs as EP type in value
+        format, a list of the EP types in xputs in value format in ascending order and a list of
+        indexes into it in the order of xputs.
+    """
+    xput_eps = tuple((asint(x, vt) for x in xputs))
+    xput_types = sorted(set(xput_eps))
+    return xput_eps, xput_types, [xput_types.index(x) for x in xput_eps]
+
+
 class _GC(dict):
     """Abstract base class for genetic code (GC) types.
 
@@ -73,13 +97,12 @@ class _GC(dict):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if not kwargs.get('suppress_validation', False):
-            self.validate()
+        self.setdefault('_ref', random_reference())
 
     def validate(self):
         """Validate all required key:value pairs are correct."""
         if not self.validator.validate(self):
-            raise ValueError("Validation FAILED.")
+            raise ValueError(f"Validation FAILED with:\n{self.validator.error_str()}")
 
 
 class eGC(_GC):
@@ -92,6 +115,31 @@ class eGC(_GC):
 
     validator = generic_validator(_get_schema(_EGC), allow_unknown=True)
 
+    def __init__(self, gc={}, inputs=tuple(), outputs=tuple(), vt=vtype.OBJECT, sv=True):
+        """Construct.
+
+        Args
+        ----
+        gc (a _GC dervived object): GC to ensure is eGC compliant.
+        inputs (iterable(object)): GC inputs. Object is of the type defined by vt.
+        outputs (iterable(object)): GC outputs. Object is of the type defined by vt.
+        vt (vtype): The interpretation of the object. See vtype definition.
+        sv (bool): Suppress validation. If True the eGC will not be validated on construction.
+        """
+        #TODO: Consider lazy loading fields
+        super().__init__(gc)
+        graph_inputs, self['input_types'], self['inputs'] = interface_definition(inputs, vt)
+        graph_outputs, self['output_types'], self['outputs'] = interface_definition(outputs, vt)
+        self.setdefault('_gca', None)
+        self.setdefault('_gcb', None)
+        if '_graph' not in self:
+            _graph = gc_graph()
+            _graph.add_inputs(graph_inputs)
+            _graph.add_outputs(graph_outputs)
+            self['_graph'] = _graph
+        if not sv:
+            self.validate()
+
 
 class mGC(_GC):
     """Minimal GC type.
@@ -101,6 +149,28 @@ class mGC(_GC):
     """
 
     validator = generic_validator(_get_schema(_MGC), allow_unknown=True)
+
+    def __init__(self, gc={}, _graph=gc_graph(), _gca=None, _gcb=None, sv=True):
+        """Construct.
+
+        Args
+        ----
+        gc (a _GC dervived object): GC to ensure is mGC compliant.
+        _gca (int or None): gca reference.
+        _gcb (int or None): gcb reference.
+        sv (bool): Suppress validation. If True the eGC will not be validated on construction.
+        """
+        super().__init__(gc)
+        self.setdefault('_graph', _graph)
+        self.setdefault('_gca', _gca)
+        self.setdefault('_gcb', _gcb)
+        if 'inputs' not in self:
+            inputs = self['_graph'].input_if()
+            outputs = self['_graph'].output_if()
+            _, self['input_types'], self['inputs'] = interface_definition(inputs, vtype.EP_TYPE_INT)
+            _, self['output_types'], self['outputs'] = interface_definition(outputs, vtype.EP_TYPE_INT)
+        if not sv:
+            self.validate()
 
 
 def _md_string(gct, key):
@@ -115,9 +185,9 @@ def _md_string(gct, key):
 def md_table():
     """Create a GitHub Markdown table showing the requirements of each field for each GC type."""
     gcts = (
-        _GC(suppress_validation=True),
-        eGC(suppress_validation=True),
-        mGC(suppress_validation=True)
+        _GC(sv=True),
+        eGC(sv=True),
+        mGC(sv=True)
     )
     with open('gc_type_table.md', 'w') as file_ptr:
         file_ptr.write("GC Type Field Requirements\n")

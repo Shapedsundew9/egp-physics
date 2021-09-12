@@ -4,29 +4,49 @@ This test module assumes it has access to a postgresql instance as configured in
 data/test_glib_config.json. The user requires database CREATE & DELETE rights.
 """
 
-
 import pytest
-from collections import Counter
+from os.path import join, dirname
+from json import load
 from hashlib import md5
 from pprint import pformat
+from collections import Counter
 from statistics import stdev
-from random import randint
+from logging import getLogger
+from random import choice, randint
+from egp_physics.physics import gc_insert
+from egp_physics.gc_type import eGC, mGC
+from egp_physics.gc_graph import gc_graph
 
 
-@pytest.mark.parametrize("inputs, outputs",
-    (
-        ((int32, int, int), ('float32',)),
-        ((int, str, int), ('int', 'str', 'int')),
-        ((int, object, list), ('int', 'dict'))
-    )
-)
-def test_eGC(inputs, outputs):
-    """eGC() returns an invalid GC so can only test for basic errors."""
-    assert eGC(inputs, outputs)
+# Load the results file.
+with open(join(dirname(__file__), "data/test_physics_results.json"), "r") as file_ptr:
+    results = load(file_ptr)
 
 
-@pytest.mark.good
-def test_basic_insert_2_simple_A(small_gene_pool):
+STATS_N = 1000
+_logger = getLogger(__name__)
+
+
+def test_basic_insert_1_simple():
+    """Test case #1 of GC insertion."""
+    tgc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
+    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
+    graph = gc_insert(None, tgc, igc, 'A')[0]['graph']
+    code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+
+    """
+    # Debug code
+    graphs = {}
+    for _ in range(100):
+        graph = gc_insert(None, tgc, igc, 'A')[0]['graph']
+        code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+        graphs[code] = graph
+    print(pformat(graphs))
+    """
+    assert code in results['basic_insert_1'].keys()
+
+
+def test_basic_insert_2_simple():
     """Test case #2 of GC insertion.
 
     Two codons with compatible input and output types are stacked.
@@ -35,48 +55,151 @@ def test_basic_insert_2_simple_A(small_gene_pool):
     of types and insertion location is random and so several variants
     may be created and one of which is correct.
     """
-    _logger.info("Starting test test_basic_insert_2_simple_A")
-    small_gene_pool.clear()
-    tgc, igc = small_gene_pool[ADDI_SIGNATURE], small_gene_pool[SUBI_SIGNATURE]
-    graph = gc_insert(tgc, igc, 'A')[0]['graph']
+    tgc = mGC(_graph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O':[['A', 0, 2]]}), sv=False)
+    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
+    graph = gc_insert(None, tgc, igc, 'A')[0]['graph']
     code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
 
     """
     # Debug code
-    if not code in results['basic_insert_2'].keys():
-        graphs = {}
-        for _ in range(100):
-            graph = gc_insert(tgc, igc, 'A')[0]['graph']
-            code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
-            graphs[code] = graph
-        print(pformat(graphs))
+    graphs = {}
+    for _ in range(100):
+        graph = gc_insert(None, tgc, igc, 'A')[0]['graph']
+        code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+        graphs[code] = graph
+    print(pformat(graphs))
     """
     assert code in results['basic_insert_2'].keys()
 
 
-@pytest.mark.good
-def test_basic_insert_2_simple_B(small_gene_pool):
-    """Test GC data after an insertion is as expected.
+def test_basic_insert_3_simple():
+    """Test case #3 of GC insertion."""
+    tgc = mGC(_graph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O':[['A', 0, 2]]}), sv=False)
+    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
+    graph = gc_insert(None, tgc, igc, 'B')[0]['graph']
+    code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
 
-    When a GC is created from two others many parameters are updated.
-    In this case two codons are stacked.
     """
-    _logger.info("Starting test test_basic_insert_2_simple_B")
-    small_gene_pool.clear()
-    tgc, igc = small_gene_pool[ADDI_SIGNATURE], small_gene_pool[SUBI_SIGNATURE]
-    gcs = gc_insert(tgc, igc, 'A')
-    rgc_signature = gcs[0]['signature']
-    small_gene_pool.add(gcs)
-    small_gene_pool.push()
-    rgc = small_gene_pool[rgc_signature]
-    assert rgc['generation'] == 1
-    assert rgc['raw_num_codons'] == 2
-    assert rgc['code_depth'] == 2
-    assert rgc['num_codes'] == 2
+    # Debug code
+    graphs = {}
+    for _ in range(100):
+        graph = gc_insert(None, tgc, igc, 'B')[0]['graph']
+        code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+        graphs[code] = graph
+    print(pformat(graphs))
+    """
+    assert code in results['basic_insert_3'].keys()
 
 
-@pytest.mark.good
-def test_basic_insert_2_stats(small_gene_pool):
+def test_basic_insert_4_simple():
+    """Test case #4 of GC insertion."""
+    graph = {
+        'A': [['I', 1, 2], ['I', 1, 2]],
+        'B': [['I', 0, 2], ['I', 1, 2]],
+        'O': [['B', 0, 2]],
+        'U': [['A', 0, 2]]
+    }
+    tgc = mGC(_graph=gc_graph(graph), sv=False)
+    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
+    graph = gc_insert(None, tgc, igc, 'A')[0]['graph']
+    code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+
+    """
+    # Debug code
+    graphs = {}
+    # rgc result is the sole possible result for the simple test
+    graph = gc_insert(None, tgc, igc, 'A')[0]['graph']
+    code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+    graphs[code] = graph
+    for _ in range(100):
+        # fgc results are for use in test_basic_insert_4_stats test
+        graph = gc_insert(None, tgc, igc, 'A')[1]['graph']
+        code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+        graphs[code] = graph
+    print(pformat(graphs))
+    """
+    assert code in results['basic_insert_4'].keys()
+
+
+def test_basic_insert_5_simple():
+    """Test case #5 of GC insertion."""
+    graph = {
+        'A': [['I', 1, 2], ['I', 1, 2]],
+        'B': [['I', 0, 2], ['I', 1, 2]],
+        'O': [['B', 0, 2]],
+        'U': [['A', 0, 2]]
+    }
+    tgc = mGC(_graph=gc_graph(graph), sv=False)
+    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
+    graph = gc_insert(None, tgc, igc, 'B')[0]['graph']
+    code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+
+    """
+    # Debug code
+    graphs = {}
+    # rgc result is the sole possible result for the simple test
+    graph = gc_insert(None, tgc, igc, 'B')[0]['graph']
+    code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+    graphs[code] = graph
+    for _ in range(100):
+        # fgc results are for use in test_basic_insert_4_stats test
+        graph = gc_insert(None, tgc, igc, 'B')[1]['graph']
+        code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+        graphs[code] = graph
+    print(pformat(graphs))
+    """
+    assert code in results['basic_insert_5'].keys()
+
+
+def test_basic_insert_6_simple():
+    """Test case #6 of GC insertion."""
+    graph = {
+        'A': [['I', 1, 2], ['I', 1, 2]],
+        'B': [['I', 0, 2], ['I', 1, 2]],
+        'O': [['B', 0, 2]],
+        'U': [['A', 0, 2]]
+    }
+    tgc = mGC(_graph=gc_graph(graph), sv=False)
+    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
+    graph = gc_insert(None, tgc, igc, 'O')[0]['graph']
+    code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+
+    """
+    # Debug code
+    graphs = {}
+    for _ in range(100):
+        graph = gc_insert(None, tgc, igc, 'O')[0]['graph']
+        code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+        graphs[code] = graph
+    print(pformat(graphs))
+    """
+    assert code in results['basic_insert_6'].keys()
+
+
+def test_basic_insert_1_stats():
+    """Check the statistics of case #1 in the basic scenario.
+
+    Case #1 has 12 equally probable possiblities.
+    """
+    tgc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
+    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
+    f = lambda: md5(bytearray(pformat(gc_insert(None, tgc, igc, 'A')[0]['graph']), encoding='ascii')).hexdigest()
+    func = lambda x: [f() for _ in range(x)]
+    unlikely = 0
+    for _ in range(3):
+        counts = Counter(func(int(STATS_N * 3)))
+        for checksum in counts: assert checksum in results['basic_insert_1'].keys()
+        if stdev(counts.values()) > 35.115:
+            _logger.debug(f"Standard deviation = {stdev(counts.values())}")
+            unlikely += 1
+
+    if unlikely == 1: _logger.info("Suspicious: Random connection probability > 1 in 2149")
+    elif unlikely == 2: _logger.warn("Very suspicious: Random connection probability > 1 in 4618201")
+    elif unlikely == 3: _logger.error("Something is wrong: Random connection probability > 1 in 9924513949")
+    assert unlikely < 3
+
+
+def test_basic_insert_2_stats():
     """Check the statistics of case #2 in the basic scenario.
 
     The connectivity of the inserted GC is uniform random. To verify
@@ -94,15 +217,16 @@ def test_basic_insert_2_stats(small_gene_pool):
     So if 1000 inserts have a stdev > 35.115 three times in a row that is
     about a 1 in 10 billion shot.
     """
-    _logger.info("Starting test test_basic_insert_2_stats")
-    small_gene_pool.clear()
-    tgc, igc = small_gene_pool[ADDI_SIGNATURE], small_gene_pool[SUBI_SIGNATURE]
-    func = lambda x: [md5(bytearray(pformat(gc_insert(tgc, igc, 'A')[0]['graph']), encoding='ascii')).hexdigest() for _ in range(x)]
+    tgc = mGC(_graph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O':[['A', 0, 2]]}), sv=False)
+    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
+    f = lambda: md5(bytearray(pformat(gc_insert(None, tgc, igc, 'A')[0]['graph']), encoding='ascii')).hexdigest()
+    func = lambda x: [f() for _ in range(x)]
     unlikely = 0
-    for iteration in range(3):
+    for _ in range(3):
         counts = Counter(func(STATS_N))
         for checksum in counts: assert checksum in results['basic_insert_2'].keys()
         if stdev(counts.values()) > 35.115:
+            _logger.debug(f"Standard deviation = {stdev(counts.values())}")
             unlikely += 1
 
     if unlikely == 1: _logger.info("Suspicious: Random connection probability > 1 in 2149")
@@ -111,41 +235,21 @@ def test_basic_insert_2_stats(small_gene_pool):
     assert unlikely < 3
 
 
-@pytest.mark.good
-@pytest.mark.parametrize("a, b", tuple((randint(0, 100), randint(0, 100)) for _ in range(10)))
-def test_basic_insert_2_identity(small_gene_pool, a, b):
-    """Inserting a graph should not change the function of the original.
-
-    Insertion is a null operation from a functionality perspective.
-    Do the test 100 times for a strong statistical likelihood of
-    generating all variants and not getting a 'unlucky' correct
-    mathematical result.
-    """
-    _logger.info("Starting test test_basic_insert_2_identity")
-    small_gene_pool.clear()
-    tgc, igc = small_gene_pool[ADDI_SIGNATURE], small_gene_pool[SUBI_SIGNATURE]
-    gcs = gc_insert(tgc, igc, 'A')
-    rgc_signature = gcs[0]['signature']
-    small_gene_pool.add(gcs)
-    rgc = small_gene_pool[rgc_signature]
-    assert tgc['_func']((a, b)) == rgc['_func']((a, b))
-
-
-@pytest.mark.good
-def test_basic_insert_3_stats(small_gene_pool):
+def test_basic_insert_3_stats():
     """Check the statistics of case #3 in the basic scenario.
 
     Case #3 has 9 equally probable possiblities.
     """
-    _logger.info("Starting test test_basic_insert_3_stats")
-    small_gene_pool.clear()
-    tgc, igc = small_gene_pool[ADDI_SIGNATURE], small_gene_pool[SUBI_SIGNATURE]
-    func = lambda x: [md5(bytearray(pformat(gc_insert(tgc, igc, 'B')[0]['graph']), encoding='ascii')).hexdigest() for _ in range(x)]
+    tgc = mGC(_graph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O':[['A', 0, 2]]}), sv=False)
+    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
+    f = lambda: md5(bytearray(pformat(gc_insert(None, tgc, igc, 'B')[0]['graph']), encoding='ascii')).hexdigest()
+    func = lambda x: [f() for _ in range(x)]
     unlikely = 0
-    for iteration in range(3):
+    for _ in range(3):
         counts = Counter(func(int(STATS_N * 2.25)))
         for checksum in counts: assert checksum in results['basic_insert_3'].keys()
         if stdev(counts.values()) > 35.115:
+            _logger.debug(f"Standard deviation = {stdev(counts.values())}")
             unlikely += 1
 
     if unlikely == 1: _logger.info("Suspicious: Random connection probability > 1 in 2149")
@@ -154,44 +258,27 @@ def test_basic_insert_3_stats(small_gene_pool):
     assert unlikely < 3
 
 
-@pytest.mark.good
-@pytest.mark.parametrize("a, b", tuple((randint(0, 100), randint(0, 100)) for _ in range(10)))
-def test_basic_insert_3_identity(small_gene_pool, a, b):
-    """Inserting a graph should not change the function of the original.
-
-    Insertion is a null operation from a functionality perspective.
-    Do the test 10 times to avoid getting an 'unlucky' correct
-    mathematical result.
-    """
-    _logger.info("Starting test test_basic_insert_3_identity")
-    small_gene_pool.clear()
-    tgc, igc = small_gene_pool[ADDI_SIGNATURE], small_gene_pool[SUBI_SIGNATURE]
-    gcs = gc_insert(tgc, igc, 'B')
-    rgc_signature = gcs[0]['signature']
-    small_gene_pool.add(gcs)
-    rgc = small_gene_pool[rgc_signature]
-    assert tgc['_func']((a, b)) == rgc['_func']((a, b))
-
-
-@pytest.mark.good
-def test_basic_insert_4_stats(small_gene_pool):
+def test_basic_insert_4_stats():
     """Check the statistics of case #4 in the basic scenario.
 
     Case #4 FGC should have the same statistics as case #2.
     Only one RGC result is possible.
     """
-    _logger.info("Starting test test_basic_insert_4_stats")
-    small_gene_pool.clear()
-    small_gene_pool.add([GEN1_GC])
-    tgc = small_gene_pool[GEN1_GC['signature']]
-    igc = small_gene_pool[ADDI_SIGNATURE]
+    graph = {
+        'A': [['I', 1, 2], ['I', 1, 2]],
+        'B': [['I', 0, 2], ['I', 1, 2]],
+        'O': [['B', 0, 2]],
+        'U': [['A', 0, 2]]
+    }
+    tgc = mGC(_graph=gc_graph(graph), sv=False)
+    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
 
     unlikely = 0
     for iteration in range(3):
         rgc_codes = []
         fgc_codes = []
         for _ in range(STATS_N):
-            result = gc_insert(tgc, igc, 'A')
+            result = gc_insert(None, tgc, igc, 'A')
             rgc_codes.append(md5(bytearray(pformat(result[0]['graph']), encoding='ascii')).hexdigest())
             fgc_codes.append(md5(bytearray(pformat(result[1]['graph']), encoding='ascii')).hexdigest())
         rgc_counts = Counter(rgc_codes)
@@ -200,6 +287,7 @@ def test_basic_insert_4_stats(small_gene_pool):
         for checksum in fgc_counts: assert checksum in results['basic_insert_4'].keys()
         for checksum in rgc_counts: assert checksum in results['basic_insert_4'].keys()
         if stdev(fgc_counts.values()) > 35.115:
+            _logger.debug(f"Standard deviation = {stdev(fgc_counts.values())}")
             unlikely += 1
 
     if unlikely == 1: _logger.info("Suspicious: Random connection probability > 1 in 2149")
@@ -208,46 +296,27 @@ def test_basic_insert_4_stats(small_gene_pool):
     assert unlikely < 3
 
 
-@pytest.mark.good
-@pytest.mark.parametrize("a, b", tuple((randint(0, 100), randint(0, 100)) for _ in range(10)))
-def test_basic_insert_4_identity(small_gene_pool, a, b):
-    """Inserting a graph should not change the function of the original.
-
-    Insertion is a null operation from a functionality perspective.
-    Do the test 10 times to avoid getting an 'unlucky' correct
-    mathematical result.
-    """
-    _logger.info("Starting test test_basic_insert_4_identity")
-    small_gene_pool.clear()
-    small_gene_pool.add([GEN1_GC])
-    tgc = small_gene_pool[GEN1_GC['signature']]
-    igc = small_gene_pool[ADDI_SIGNATURE]
-    gcs = gc_insert(tgc, igc, 'A')
-    rgc_signature = gcs[0]['signature']
-    small_gene_pool.add(gcs)
-    rgc = small_gene_pool[rgc_signature]
-    assert tgc['_func']((a, b)) == rgc['_func']((a, b))
-
-
-@pytest.mark.good
-def test_basic_insert_5_stats(small_gene_pool):
+def test_basic_insert_5_stats():
     """Check the statistics of case #5 in the basic scenario.
 
     Case #5 FGC should have the same statistics as case #3.
     Only one RGC result is possible.
     """
-    _logger.info("Starting test test_basic_insert_5_stats")
-    small_gene_pool.clear()
-    small_gene_pool.add([GEN1_GC])
-    tgc = small_gene_pool[GEN1_GC['signature']]
-    igc = small_gene_pool[ADDI_SIGNATURE]
+    graph = {
+        'A': [['I', 1, 2], ['I', 1, 2]],
+        'B': [['I', 0, 2], ['I', 1, 2]],
+        'O': [['B', 0, 2]],
+        'U': [['A', 0, 2]]
+    }
+    tgc = mGC(_graph=gc_graph(graph), sv=False)
+    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
 
     unlikely = 0
     for iteration in range(3):
         rgc_codes = []
         fgc_codes = []
-        for _ in range(int(STATS_N * 2.25)):
-            result = gc_insert(tgc, igc, 'B')
+        for _ in range(STATS_N):
+            result = gc_insert(None, tgc, igc, 'B')
             rgc_codes.append(md5(bytearray(pformat(result[0]['graph']), encoding='ascii')).hexdigest())
             fgc_codes.append(md5(bytearray(pformat(result[1]['graph']), encoding='ascii')).hexdigest())
         rgc_counts = Counter(rgc_codes)
@@ -256,6 +325,7 @@ def test_basic_insert_5_stats(small_gene_pool):
         for checksum in fgc_counts: assert checksum in results['basic_insert_5'].keys()
         for checksum in rgc_counts: assert checksum in results['basic_insert_5'].keys()
         if stdev(fgc_counts.values()) > 35.115:
+            _logger.debug(f"Standard deviation = {stdev(fgc_counts.values())}")
             unlikely += 1
 
     if unlikely == 1: _logger.info("Suspicious: Random connection probability > 1 in 2149")
@@ -264,45 +334,28 @@ def test_basic_insert_5_stats(small_gene_pool):
     assert unlikely < 3
 
 
-@pytest.mark.good
-@pytest.mark.parametrize("a, b", tuple((randint(0, 100), randint(0, 100)) for _ in range(10)))
-def test_basic_insert_5_identity(small_gene_pool, a, b):
-    """Inserting a graph should not change the function of the original.
+def test_basic_insert_6_stats():
+    """Check the statistics of case #6 in the basic scenario.
 
-    Insertion is a null operation from a functionality perspective.
-    Do the test 10 times to avoid getting an 'unlucky' correct
-    mathematical result.
+    Case #6 FGC should have the same statistics as case #3.
+    Only one RGC result is possible.
     """
-    _logger.info("Starting test test_basic_insert_5_identity")
-    small_gene_pool.clear()
-    small_gene_pool.add([GEN1_GC])
-    tgc = small_gene_pool[GEN1_GC['signature']]
-    igc = small_gene_pool[ADDI_SIGNATURE]
-    gcs = gc_insert(tgc, igc, 'B')
-    rgc_signature = gcs[0]['signature']
-    small_gene_pool.add(gcs)
-    rgc = small_gene_pool[rgc_signature]
-    assert tgc['_func']((a, b)) == rgc['_func']((a, b))
-
-
-@pytest.mark.good
-def test_basic_insert_6_stats(small_gene_pool):
-    """Check the statistics of case #5 in the basic scenario.
-
-    Case #6 should have the same statistics as case #2.
-    """
-    _logger.info("Starting test test_basic_insert_5_stats")
-    small_gene_pool.clear()
-    small_gene_pool.add([GEN1_GC])
-    tgc = small_gene_pool[GEN1_GC['signature']]
-    igc = small_gene_pool[ADDI_SIGNATURE]
-
-    func = lambda x: [md5(bytearray(pformat(gc_insert(tgc, igc, 'O')[0]['graph']), encoding='ascii')).hexdigest() for _ in range(x)]
+    graph = {
+        'A': [['I', 1, 2], ['I', 1, 2]],
+        'B': [['I', 0, 2], ['I', 1, 2]],
+        'O': [['B', 0, 2]],
+        'U': [['A', 0, 2]]
+    }
+    tgc = mGC(_graph=gc_graph(graph), sv=False)
+    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
+    f = lambda: md5(bytearray(pformat(gc_insert(None, tgc, igc, 'O')[0]['graph']), encoding='ascii')).hexdigest()
+    func = lambda x: [f() for _ in range(x)]
     unlikely = 0
-    for iteration in range(3):
+    for _ in range(3):
         counts = Counter(func(STATS_N))
         for checksum in counts: assert checksum in results['basic_insert_6'].keys()
         if stdev(counts.values()) > 35.115:
+            _logger.debug(f"Standard deviation = {stdev(counts.values())}")
             unlikely += 1
 
     if unlikely == 1: _logger.info("Suspicious: Random connection probability > 1 in 2149")
@@ -311,95 +364,21 @@ def test_basic_insert_6_stats(small_gene_pool):
     assert unlikely < 3
 
 
-@pytest.mark.good
-@pytest.mark.parametrize("a, b", tuple((randint(0, 100), randint(0, 100)) for _ in range(10)))
-def test_basic_insert_6_identity(small_gene_pool, a, b):
-    """Inserting a graph should not change the function of the original.
+def test_random_homogeneous_insertion():
+    """Randomly insert eGC's which all have the same type inputs and outputs.
 
-    Insertion is a null operation from a functionality perspective.
-    Do the test 10 times to avoid getting an 'unlucky' correct
-    mathematical result.
+    Create a pool of 10 GC's with random numbers of inputs and outputs but all have
+    the same EP type.
+
+    Randomly select GCs from the pool to insert into each other adding the resultant
+    GC back to the pool.
+
+    At the end there is a mush of GC's. They should be valid GC's & no steady state
+    exception should occur.
     """
-    _logger.info("Starting test test_basic_insert_6_identity")
-    small_gene_pool.clear()
-    small_gene_pool.add([GEN1_GC])
-    tgc = small_gene_pool[GEN1_GC['signature']]
-    igc = small_gene_pool[ADDI_SIGNATURE]
-    gcs = gc_insert(tgc, igc, 'O')
-    rgc_signature = gcs[0]['signature']
-    small_gene_pool.add(gcs)
-    rgc = small_gene_pool[rgc_signature]
-    assert tgc['_func']((a, b)) == rgc['_func']((a, b))
-
-
-@pytest.mark.good
-def test_basic_insert_1_stats(small_gene_pool):
-    """Check the statistics of case #1 in the basic scenario."""
-    _logger.info("Starting test test_basic_insert_1_stats")
-    egc = eGC((int, int), (int,))
-    small_gene_pool.clear()
-    small_gene_pool.add([egc])
-    tgc = small_gene_pool[egc['signature']]
-    igc = small_gene_pool[ADDI_SIGNATURE]
-
-    func = lambda x: [md5(bytearray(pformat(gc_insert(tgc, igc, 'A')[0]['graph']), encoding='ascii')).hexdigest() for _ in range(x)]
-    unlikely = 0
-    for iteration in range(3):
-        counts = Counter(func(STATS_N * 3))
-        for checksum in counts: assert checksum in results['basic_insert_1'].keys()
-        if stdev(counts.values()) > 35.115:
-            unlikely += 1
-
-    if unlikely == 1: _logger.info("Suspicious: Random connection probability > 1 in 2149")
-    elif unlikely == 2: _logger.warn("Very suspicious: Random connection probability > 1 in 4618201")
-    elif unlikely == 3: _logger.error("Something is wrong: Random connection probability > 1 in 9924513949")
-    assert unlikely < 3
-
-
-@pytest.mark.good
-def test_random_homogeneous_insertion(big_gene_pool):
-    """Randomly insert GC's which all have the same type inputs and outputs."""
-    _logger.info("Starting test random homogeneous insertion")
-    query = {
-        "input_types": {
-            "operator": "contained by",
-            "array": [283] * 8
-        },
-        "output_types": {
-            "operator": "contained by",
-            "array": [283] * 8
-        },
-        "order by": "RANDOM()",
-        "limit": 1
-    }
-    tgc = big_gene_pool.gl([query])[0]
-    for _ in range(10):
-        igc = big_gene_pool.gl([query])[0]
-        gcs = gc_insert(tgc, igc)
-        rgc_signature = gcs[0]['signature']
-        big_gene_pool.add(gcs)
-        tgc = big_gene_pool[rgc_signature]
-        big_gene_pool.push()
-
-    # TODO: Need to assert on the inputs & outputs
-    #big_gene_pool.save_gc_graph(rgc_signature, join(_log_location, "test_random_homogeneous_insertion_gc_graph"))
-    #big_gene_pool.save_codon_graph(rgc_signature, join(_log_location, "test_random_homogeneous_insertion_codon_graph"))
-    #git big_gene_pool.gl([query])
-
-
-@pytest.mark.good
-def test_initial_gc(big_gene_pool):
-    """Create a GC that meets the input & output criteria."""
-    _logger.info("Starting test of initial_gc()")
-    register_gene_pool(big_gene_pool)
-    signature = initial_gc([128], [128])
-    # FIXME: This is not a valid assertion
-    assert signature
-
-
-
-def test_remove_gc(big_gene_pool):
-    """Create a GC that meets the input & output criteria."""
-    _logger.info("Starting test of initial_gc()")
-    register_gene_pool(big_gene_pool)
-    signature = initial_gc([128], [128])
+    gc_list = [mGC(eGC(inputs=[2]*randint(1,8), outputs=[2]*randint(1,8)), sv=False) for _ in range(10)]
+    for _ in range(1000):
+        tgc = choice(gc_list)
+        igc = choice(gc_list)
+        gc_list.append(gc_insert(None, tgc, igc, choice('ABO'))[0])
+        gc_list[-1].validate()

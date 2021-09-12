@@ -17,13 +17,19 @@ from json import load
 from os.path import dirname, join
 from pprint import pformat
 from random import choice, getrandbits
-from cerberus import Validator
+from .utils.base_validator import BaseValidator
 
 
 with open(join(dirname(__file__), "formats/generic_gc_format.json"), "r") as file_ptr:
     SCHEMA = load(file_ptr)
 
+
 _SIGN = (1, -1)
+
+
+def random_reference():
+    """Quickest way to get a random (enough) reference."""
+    return getrandbits(63) * choice(_SIGN)
 
 
 def define_signature(gc):
@@ -51,7 +57,7 @@ def define_signature(gc):
     return sha256(string.encode()).hexdigest()
 
 
-class generic_validator(Validator):
+class generic_validator(BaseValidator):
 
     # TODO: Make errors ValidationError types for full disclosure
     # https://docs.python-cerberus.org/en/stable/customize.html#validator-error
@@ -71,10 +77,6 @@ class generic_validator(Validator):
         if date_time_obj > datetime.utcnow():
             self._error(field, "Created date-time cannot be in the future.")
 
-    def _check_with_valid_type(self, field, value):
-        if not validate(value):
-            self._error(field, 'ep_type {} does not exist.'.format(value))
-
     def _check_with_valid_type_input_index(self, field, value):
         # TODO: Check type indices make sense
         pass
@@ -93,7 +95,7 @@ class generic_validator(Validator):
 
     def _normalize_default_setter_set_ref(self, document):
         """Fast way to get a unique (enough) reference."""
-        return getrandbits(63) * choice(_SIGN)
+        return random_reference()
 
     def _normalize_default_setter_set_signature(self, document):
         """This needs to be very specific and stand the test of time."""

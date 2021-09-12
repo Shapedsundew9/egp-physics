@@ -2,6 +2,7 @@
 
 
 import pytest
+from copy import deepcopy
 from os.path import join, dirname
 from json import load
 from random import choice, randint, random
@@ -130,6 +131,29 @@ def test_graph_validation(i, case):
     assert i == case['i']
     assert case['valid'] == gcg.validate()
     if not case['valid']: assert all([e in [g.code for g in gcg.status] for e in case['errors']])
+
+
+@pytest.mark.parametrize("i, case", enumerate(results))
+def test_graph_str(i, case):
+    """Verification the __repr__() method is not broken."""
+    gcg = gc_graph(case['graph'])
+    assert str(gcg)
+
+
+@pytest.mark.parametrize("i, case", enumerate(results))
+def test_graph_draw(i, case):
+    """Verification the draw() method is not broken."""
+    gcg = gc_graph(case['graph'])
+    if case['valid']:
+        gcg.draw(join(dirname(__file__), '../logs/gc_graph_'+ str(i)))
+
+
+@pytest.mark.parametrize("i, case", enumerate(results))
+def test_graph_internal(i, case):
+    """Verification initializing with an internal representation is self consdistent."""
+    gcg = gc_graph(case['graph'])
+    assert gcg.application_graph() == gc_graph(internal=deepcopy(gcg.save())).application_graph()
+    assert gcg.graph == gc_graph(internal=deepcopy(gcg.save())).graph
 
 
 @pytest.mark.parametrize("i, case", enumerate(results))

@@ -1,16 +1,18 @@
 """The operation that can be performed on a GC dictionary."""
 from copy import copy, deepcopy
-from logging import NullHandler, getLogger
+from logging import NullHandler, getLogger, DEBUG
 from pprint import pformat
 from random import randint
 
-from .ep_type import interface_definition
+from .gc_type import eGC, mGC, interface_definition
+from .ep_type import vtype
 from .utils.reference import random_reference
 from .gc_graph import DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref, ref_idx
 
 
 _logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
+_LOGIT = _logger.getEffectiveLevel() == DEBUG
 
 
 # Steady state exception filters.
@@ -129,7 +131,7 @@ def _move_row(igc, src_row, src_ep_type, dst_row, dst_ep_type, clean=False):
     else:
         filter_func = lambda x: x[ep_idx.ROW] == src_row
     dst_eps = [deepcopy(ep) for ep in filter(filter_func, igc.values())]
-    _logger.debug("Moving {} to row {} ep_type {}".format(dst_eps, dst_row, dst_ep_type))
+    if _LOGIT: _logger.debug("Moving {} to row {} ep_type {}".format(dst_eps, dst_row, dst_ep_type))
     for ep in dst_eps:
         ep[ep_idx.ROW] = dst_row
         if clean: ep[ep_idx.REFERENCED_BY] = []
@@ -286,23 +288,23 @@ def _insert(igc_gcg, tgc_gcg, above_row):
     rgc = _copy_clean_row(tgc, 'IC')
     fgc = {}
     if not tgc_gcg.has_a():
-        _logger.debug("Case 1: No row A or B")
+        if _LOGIT: _logger.debug("Case 1: No row A or B")
         rgc.update(_insert_as(igc, 'A'))
         rgc.update(_copy_row(tgc, 'O'))
     elif not tgc_gcg.has_b():
         if above_row == 'A':
-            _logger.debug("Case 2: No row B and insert above A")
+            if _LOGIT: _logger.debug("Case 2: No row B and insert above A")
             rgc.update(_insert_as(igc, 'A'))
             rgc.update(_move_row(tgc, 'A', None, 'B', None))
             rgc.update(_redirect_refs(_copy_row(tgc, 'O'), 'O', DST_EP, 'A', 'B'))
         else:
-            _logger.debug("Case 3: No row B and insert below A")
+            if _LOGIT: _logger.debug("Case 3: No row B and insert below A")
             rgc.update(_copy_row(tgc, 'A'))
             rgc.update(_insert_as(igc, 'B'))
             rgc.update(_copy_row(tgc, 'O'))
     else:
         if above_row == 'A':
-            _logger.debug("Case 4: Has rows A & B and insert above A")
+            if _LOGIT: _logger.debug("Case 4: Has rows A & B and insert above A")
             fgc.update(_copy_clean_row(tgc, 'IC'))
             fgc.update(_insert_as(igc, 'A'))
             fgc.update(_move_row(tgc, 'A', None, 'B', None))
@@ -313,7 +315,7 @@ def _insert(igc_gcg, tgc_gcg, above_row):
             rgc.update(_copy_row(tgc, 'B'))
             rgc.update(_copy_row(tgc, 'O'))
         elif above_row == 'B':
-            _logger.debug("Case 5: Has rows A & B and insert above B")
+            if _LOGIT: _logger.debug("Case 5: Has rows A & B and insert above B")
             fgc.update(_copy_clean_row(tgc, 'IC'))
             fgc.update(_copy_row(tgc, 'A'))
             fgc.update(_insert_as(igc, 'B'))
@@ -324,7 +326,7 @@ def _insert(igc_gcg, tgc_gcg, above_row):
             rgc.update(_copy_row(tgc, 'B'))
             rgc.update(_copy_row(tgc, 'O'))
         else:
-            _logger.debug("Case 6: Has rows A & B and insert above O")
+            if _LOGIT: _logger.debug("Case 6: Has rows A & B and insert above O")
             rgc.update(_direct_connect(rgc, 'I', 'A'))
             rgc.update(_move_row(tgc, 'O', DST_EP, 'A', SRC_EP, True))
             rgc.update(_insert_as(igc, 'B'))
@@ -333,7 +335,7 @@ def _insert(igc_gcg, tgc_gcg, above_row):
     # Case 1 is special because rgc is invalid by definition. In this case a
     # gc_graph normalization is forced to try and avoid the inevitable steady
     # state exception.
-    _logger.debug("Pre-completed rgc:\n{}".format(pformat(rgc)))
+    if _LOGIT: _logger.debug("Pre-completed rgc:\n{}".format(pformat(rgc)))
     if not tgc_gcg.has_a():
         rgc_graph = gc_graph()
         rgc_graph.inject_graph(rgc)
@@ -342,14 +344,14 @@ def _insert(igc_gcg, tgc_gcg, above_row):
         _complete_references(rgc)
         rgc_graph = gc_graph()
         rgc_graph.inject_graph(rgc)
-    _logger.debug("Completed rgc:\n{}".format(pformat(rgc)))
+    if _LOGIT: _logger.debug("Completed rgc:\n{}".format(pformat(rgc)))
 
     if fgc:
-        _logger.debug("Pre-completed fgc:\n{}".format(pformat(fgc)))
+        if _LOGIT: _logger.debug("Pre-completed fgc:\n{}".format(pformat(fgc)))
         _complete_references(fgc)
         fgc_graph = gc_graph()
         fgc_graph.inject_graph(fgc)
-        _logger.debug("Completed fgc:\n{}".format(pformat(fgc)))
+        if _LOGIT: _logger.debug("Completed fgc:\n{}".format(pformat(fgc)))
     else:
         fgc_graph = 0
     return rgc_graph, fgc_graph
@@ -386,8 +388,8 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):
     Args
     ----
     gp (gene_pool or genomic_library): A source of genetic material.
-    target_gc (xgc): xGC to insert insert_gc into.
-    insert_gc (xgc): xGC to insert into target_gc.
+    target_gc (eGC): eGC to insert insert_gc into.
+    insert_gc (eGC): eGC to insert into target_gc.
     above_row (string): One of 'A', 'B' or 'O'.
 
     Returns
@@ -410,11 +412,11 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):
 
     fgc_list = []
     while work_stack and work_stack[0] is not None:
-        _logger.debug("Work stack depth: {}".format(len(work_stack)))
+        if _LOGIT: _logger.debug("Work stack depth: {}".format(len(work_stack)))
         fgc = {}
         rgc = {}
         target_gc, insert_gc, above_row = work_stack.pop(0)
-        _logger.debug("Work: Target={}, Insert={}, Above Row={}".format(target_gc['_ref'], insert_gc['_ref'], above_row))
+        if _LOGIT: _logger.debug("Work: Target={}, Insert={}, Above Row={}".format(target_gc['_ref'], insert_gc['_ref'], above_row))
         # TODO: Get rid of None (make it None)
 
         # Insert into the graph
@@ -423,47 +425,47 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):
         rgc_graph, fgc_graph = _insert(igc_graph, tgc_graph, above_row)
         if fgc_graph:
             fgc_steady = fgc_graph.normalize()
-            _logger.debug("Normalized fgc:\n{}".format(pformat(fgc_graph)))
+            if _LOGIT: _logger.debug("Normalized fgc:\n{}".format(pformat(fgc_graph)))
             fgc['graph'] = fgc_graph.app_graph
             fgc['_graph'] = fgc_graph
         rgc_steady = rgc_graph.normalize()
-        _logger.debug("Normalized rgc:\n{}".format(pformat(rgc_graph)))
+        if _LOGIT: _logger.debug("Normalized rgc:\n{}".format(pformat(rgc_graph)))
         rgc['graph'] = rgc_graph.app_graph
         rgc['_graph'] = rgc_graph
 
         #Insert into the GC
         if not tgc_graph.has_a(): # Case 1
-            _logger.debug("Case 1")
-            rgc['gca'] = insert_gc['_ref']
-            rgc['gcb'] = None
+            if _LOGIT: _logger.debug("Case 1")
+            rgc['_gca'] = insert_gc['_ref']
+            rgc['_gcb'] = None
         elif not tgc_graph.has_b():
             if above_row == 'A': # Case 2
-                _logger.debug("Case 2")
-                rgc['gca'] = insert_gc['_ref']
-                rgc['gcb'] = target_gc['gca'] if target_gc['gca'] != None else target_gc['_ref'] # Consider codon case
+                if _LOGIT: _logger.debug("Case 2")
+                rgc['_gca'] = insert_gc['_ref']
+                rgc['_gcb'] = target_gc['_gca'] if target_gc['_gca'] != None else target_gc['_ref'] # Consider codon case
             else: # Case 3
-                _logger.debug("Case 3")
-                rgc['gca'] = target_gc['gca'] if target_gc['gca'] != None else target_gc['_ref'] # Consider codon case
-                rgc['gcb'] = insert_gc['_ref']
+                if _LOGIT: _logger.debug("Case 3")
+                rgc['_gca'] = target_gc['_gca'] if target_gc['_gca'] != None else target_gc['_ref'] # Consider codon case
+                rgc['_gcb'] = insert_gc['_ref']
         else: # Has row A & row B
             if above_row == 'A': # Case 4
-                _logger.debug("Case 4")
-                fgc['gca'] = insert_gc['_ref']
-                fgc['gcb'] = target_gc['gca']
+                if _LOGIT: _logger.debug("Case 4")
+                fgc['_gca'] = insert_gc['_ref']
+                fgc['_gcb'] = target_gc['_gca']
                 fgc['_ref'] = random_reference()
-                rgc['gca'] = fgc['_ref']
-                rgc['gcb'] = target_gc['gcb']
+                rgc['_gca'] = fgc['_ref']
+                rgc['_gcb'] = target_gc['_gcb']
             elif above_row == 'B': # Case 5
-                _logger.debug("Case 5")
-                fgc['gca'] = target_gc['gca']
-                fgc['gcb'] = insert_gc['_ref']
+                if _LOGIT: _logger.debug("Case 5")
+                fgc['_gca'] = target_gc['_gca']
+                fgc['_gcb'] = insert_gc['_ref']
                 fgc['_ref'] = random_reference()
-                rgc['gca'] = fgc['_ref']
-                rgc['gcb'] = target_gc['gcb']
+                rgc['_gca'] = fgc['_ref']
+                rgc['_gcb'] = target_gc['_gcb']
             else: # Case 6
-                _logger.debug("Case 6")
-                rgc['gca'] = target_gc['_ref']
-                rgc['gcb'] = insert_gc['_ref']
+                if _LOGIT: _logger.debug("Case 6")
+                rgc['_gca'] = target_gc['_ref']
+                rgc['_gcb'] = insert_gc['_ref']
         rgc['_ref'] = random_reference()
 
         # Check we have valid graphs
@@ -471,17 +473,14 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):
             if not fgc_steady:
                 work_stack.insert(0, steady_state_exception(gms, fgc))
             else:
-                fgc_list.append(fgc)
+                fgc_list.append(mGC(gc=fgc))
 
         if not rgc_steady:
             work_stack.insert(0, steady_state_exception(gms, rgc))
         else:
-            fgc_list.insert(0, rgc)
+            fgc_list.insert(0, mGC(gc=rgc))
 
-    # Redo the _refs now all graph issues have been resolved.
-    fgc_dict = {fgc['_ref'] : fgc for fgc in fgc_list}
-
-    _logger.debug("fgc_list: {}".format(pformat(fgc_list)))
+    if _LOGIT: _logger.debug("fgc_list: {}".format(pformat(fgc_list)))
     return None if work_stack else fgc_list
 
 
@@ -513,12 +512,12 @@ def gc_remove(gms, tgc, abpo):
     rgc_graph = deepcopy(tgc['_graph'])
     rgc_graph.remove_rows(abpo)
     if abpo == 'A':
-        rgc['gca'] = tgc['gcb']
-        rgc['gcb'] = None
+        rgc['_gca'] = tgc['_gcb']
+        rgc['_gcb'] = None
         rgc_graph.move_refs('B', 'A')
     elif abpo == 'B':
-        rgc['gca'] = tgc['gca']
-        rgc['gcb'] = None
+        rgc['_gca'] = tgc['_gca']
+        rgc['_gcb'] = None
     elif abpo == 'P':
         rgc_graph.remove_rows('F')
     elif abpo == 'O':
@@ -527,7 +526,7 @@ def gc_remove(gms, tgc, abpo):
         rgc_graph.move_refs('P', 'O')
     rgc['_ref'] = random_reference()
     if not rgc_graph.normalize():
-        rgc = gc_insert(*steady_state_exception(rgc, gms))[0]
+        rgc = gc_insert(gms, *steady_state_exception(rgc, gms))[0]
     return rgc
 
 
@@ -599,39 +598,10 @@ def proximity_select(xputs, gms):
     match_type = randint(0, _NUM_MATCH_TYPES - 1)
     agc = gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs, container='pkdict')
     while not agc and match_type < _NUM_MATCH_TYPES:
-        _logger.debug(f'Proximity selection match_type {match_type} found no candidates.')
+        if _LOGIT: _logger.debug(f'Proximity selection match_type {match_type} found no candidates.')
         match_type += 1
         agc = gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs, container='pkdict')
     return None if not agc else agc[0]
-
-
-def _add_type_set(xputs):
-    """Add an ordered type set to xputs.
-
-    NOTE: xputs is modified.
-
-    Args
-    ----
-    xputs (dict): Of the format:
-        {
-            'inputs': list(int) - Ordered indexes into list above defining the GC input interface.
-            'outputs': list(int) - Ordered indexes into list above defining the GC output interface.
-        }
-        Other key:value pairs will be ignored (persisted).
-
-    Returns
-    -------
-    xputs (dict): Of the format:
-        {
-            'input_types': list(int) - list of ascending gc_types in the inputs.
-            'inputs': list(int) - Ordered indexes into list above defining the GC input interface.
-            'output_types': list(int) - list of ascending gc_types in the inputs.
-            'outputs': list(int) - Ordered indexes into list above defining the GC output interface.
-        }
-    """
-    xputs['input_types'] = sorted(set(xputs['inputs']))
-    xputs['output_types'] = sorted(set(xputs['outputs']))
-    return xputs
 
 
 def steady_state_exception(gms, fgc):
@@ -664,78 +634,28 @@ def steady_state_exception(gms, fgc):
     for ep in dst_list:
         if ep[ep_idx.ROW] < above_row: above_row = ep[ep_idx.ROW]
         outputs.append(ep[ep_idx.TYPE])
-    xputs = {
-        'outputs': outputs,
-        'exclude_column': 'signature',
-        'exclusions': tuple()
-        }
 
     # Find viable source types above the highest row.
     filter_func = fgc_graph.rows_filter(fgc_graph.src_rows[above_row], fgc_graph.src_filter())
-    xputs['inputs'] = list((ep[ep_idx.TYPE] for ep in filter(filter_func, fgc_graph.graph.values())))
+    inputs = list((ep[ep_idx.TYPE] for ep in filter(filter_func, fgc_graph.graph.values())))
+
+    xputs = {
+        'exclude_column': 'signature',
+        'exclusions': tuple()
+        }
+    _, xputs['input_types'], xputs['inputs'] = interface_definition(inputs, vtype.EP_TYPE_INT)
+    _, xputs['output_types'], xputs['outputs'] = interface_definition(outputs, vtype.EP_TYPE_INT)
 
     # Find a gc based on the criteria
-    insert_gc = gms.proximity_select(_add_type_set(xputs))
+    insert_gc = gms.proximity_select(xputs)
     if insert_gc is None:
         _logger.warning("Steady state exception failed to find a candidate in the GMS.")
         return None
 
-    # insert_gc may not have a '_ref' i.e. gms is a genomic_library.
-    insert_gc.setdefault('_ref', random_reference())
-    return (fgc, insert_gc, above_row)
+    return (fgc, eGC(insert_gc), above_row)
 
 
-def create_eGC(inputs, outputs):
-    """Create an empty embryonic GC with the specified inputs & outputs.
-
-    An embryonic GC has an invalid graph.
-
-    Args
-    ----
-    inputs (iterable): gc_types in integer format.
-    outputs (iteratble): gc_types in integer format.
-
-    Returns
-    -------
-    (dict): A GC with no GCA or GCB and an invalid graph with only
-        input source endpoints and output destination endpoints defined.
-    """
-    gc_inputs = _convert_types_to_int(inputs, 'Input')
-    gc_outputs = _convert_types_to_int(outputs, 'Output')
-    graph = gc_graph()
-    graph.add_inputs(gc_inputs)
-    graph.add_outputs(gc_outputs)
-    gc = {
-        'graph': {},
-        '_graph': graph,
-        'gca': None,
-        'gcb': None,
-        '_valid': False,
-        '_ref': random_reference()
-    }
-    _logger.debug("Empty embryonic GC created:\n{}".format(gc))
-    return gc
-
-
-_initial_gc_insert_query = {
-    "input_types": {
-        "operator": "contained by",
-        "array": None
-    },
-    "output_types": {
-        "operator": "contained by",
-        "array": None
-    },
-    "order by": "RANDOM()",
-    "limit": 1
-}
-_initial_gc_match_query = {
-    "input_types": None,
-    "output_types": None,
-    "order by": "RANDOM()",
-    "limit": 1
-}
-def initial_gc(inputs, outputs, gms, exclusions=tuple(), num=1):
+def initial_gc(inputs, outputs, gms, exclusions=tuple(), num=1, vt=vtype.OBJECT):
     """Create num valid GC's with the specified inputs & outputs.
 
     GC's matching the criteria in the GMS will be given preference over
@@ -749,23 +669,24 @@ def initial_gc(inputs, outputs, gms, exclusions=tuple(), num=1):
 
     Args
     ----
-    inputs (iterable(object or type)): Input objects or types.
-    outputs (iteratble(object or type)): Output objects or types.
-    gms (object): A gene_pool or genomic_library object.
+    inputs (iterable(object or type)): Input objects of vt type.
+    outputs (iteratble(object or type)): Output objects of vt type.
+    gms (object): Genetic Material Source: A gene_pool or genomic_library object.
     num (int): The number of GC's to create
+    vt (vtype): See vtype definition.
 
     Returns
     -------
-    (list(egc)) or None
+    (list(eGC)) or None
     """
     xputs = {
-        'inputs': _convert_types_to_int(inputs, 'input'),
-        'outputs': _convert_types_to_int(outputs, 'output'),
         'exclude_column': 'signature',
         'exclusions': exclusions,
         'limit': num
     }
-    gcs = gms.select(_INITIAL_GC_SQL, literals=xputs, container='pkdict')
-    new_gcs = (eGC(xputs['inputs'], xputs['outputs']) for _ in range(num - len(gcs)))
-    gcs.update({gc['_ref']: gc for gc in new_gcs})
+    _, xputs['input_types'], xputs['inputs'] = interface_definition(inputs, vt)
+    _, xputs['output_types'], xputs['outputs'] = interface_definition(outputs, vt)
+
+    gcs = [eGC(gc=gc) for gc in gms.select(_INITIAL_GC_SQL, literals=xputs, container='dict')]
+    gcs.extend((eGC(inputs=inputs, outputs=outputs, vt=vt) for _ in range(num - len(gcs))))
     return gcs

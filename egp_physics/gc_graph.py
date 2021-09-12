@@ -24,19 +24,26 @@ from graph_tool import Graph
 from graph_tool.draw import graph_draw
 from cairo import FONT_WEIGHT_BOLD
 from math import sqrt
-from .ep_type import validate, compatible, asstr, import_str, type_str, UNKNOWN_EP_TYPE_VALUE
-from .gc_type import eGC, mGC
+from .ep_type import EP_TYPE_VALUES, validate, compatible, asstr, import_str, type_str, UNKNOWN_EP_TYPE_VALUE
 from .utils.text_token import text_token, register_token_code
 
 
 _logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
-
+_LOGIT = _logger.getEffectiveLevel() == DEBUG
 
 SRC_EP = True
 DST_EP = False
 DESTINATION_ROWS = ('A', 'B', 'F', 'O', 'P')
 SOURCE_ROWS = ('I', 'C', 'A', 'B')
+
+
+_REPR_LAMBDA = lambda x:x[1][ep_idx.INDEX]
+_OUT_FUNC = lambda x: x[ep_idx.ROW == 'O'] and x[ep_idx.EP_TYPE] == SRC_EP
+
+#TODO: Make lambda function definitions static
+#TODO: Replace all the little filter functions with static lambda functions.
+
 
 # NetworkX & Bokeh parameters
 _NX_NODE_RADIUS = 30
@@ -182,10 +189,10 @@ def validate_value(value_str, ep_type_int):
     try:
         eval(tstr)
     except NameError:
-        _logger.debug(f'Importing {tstr}.')
+        if _LOGIT: _logger.debug(f'Importing {tstr}.')
         exec(import_str(ep_type_int))
 
-    _logger.debug(f'retval = isinstance({value_str}, {tstr})')
+    if _LOGIT: _logger.debug(f'retval = isinstance({value_str}, {tstr})')
     try:
         retval = eval(f'isinstance({value_str}, {tstr})')
     except:
@@ -244,11 +251,12 @@ class gc_graph():
         # TODO: Uses self.rows where appropriate to reduce the need for calculated results.
         if not internal is None:
             self.load(internal)
-        elif graph is None:
-            graph = {}
-        self.rows = None
-        self.app_graph = graph
-        self.graph = self._convert_to_internal(graph)
+        else:
+            if graph is None:
+                graph = {}
+            self.rows = None
+            self.app_graph = graph
+            self.graph = self._convert_to_internal(graph)
         self.status = []
 
 
@@ -259,7 +267,7 @@ class gc_graph():
         for row in gc_graph.sorted_rows:
             for ep_type in (False, True):
                 row_dict = {k: v for k, v in self.graph.items() if v[0] == ep_type and v[ep_idx.ROW] == row}
-                str_list.extend([k + ': ' + str(v) for k, v in sorted(row_dict.items(), key=lambda x:x[1][ep_idx.INDEX])])
+                str_list.extend([k + ': ' + str(v) for k, v in sorted(row_dict.items(), key=_REPR_LAMBDA)])
         string = ',\n'.join(str_list) + '\n'
         string += "(\n{},\n{}\n)\n{}".format(pformat(self.rows[0]), pformat(self.rows[1]), pformat(self.app_graph))
         return string
@@ -320,6 +328,7 @@ class gc_graph():
         """
         self.graph = internal['graph']
         self.rows = internal['rows']
+        self.app_graph = self.application_graph()
         return self
 
 
@@ -444,7 +453,7 @@ class gc_graph():
             if not ep[ep_idx.INDEX] in gtg[ep[ep_idx.ROW]][ep[ep_idx.EP_TYPE]]:
                 row = ep[ep_idx.ROW] if ep[ep_idx.EP_TYPE] else ep[ep_idx.ROW].lower()
                 node = row + str(ep[ep_idx.INDEX])
-                _logger.debug(f"Adding to nx_graph node: {node}")
+                if _LOGIT: _logger.debug(f"Adding to nx_graph node: {node}")
                 ep_type = ('Destination', 'Source')[ep[ep_idx.EP_TYPE]]
                 value = ep[ep_idx.VALUE] if ep[ep_idx.ROW] == 'C' else 'N/A'
                 g.add_node(node, text=node, size=_NX_NODE_RADIUS, font_size='16px',
@@ -458,7 +467,7 @@ class gc_graph():
                 dst_node = gtg[ep[ep_idx.ROW]][DST_EP][ep[ep_idx.INDEX]]
                 src_node = gtg[ref[ref_idx.ROW]][SRC_EP][ref[ref_idx.INDEX]]
                 g.add_edge(src_node, dst_node, **_NX_ROW_EDGE_ATTR)
-                _logger.debug(f"Adding to nx_graph edge : {src_node}->{dst_node}")
+                if _LOGIT: _logger.debug(f"Adding to nx_graph edge : {src_node}->{dst_node}")
         return g
 
 
@@ -540,7 +549,7 @@ class gc_graph():
             size = max((len(dst_list), len(src_list)))
             if size:
                 node = g.add_vertex()
-                _logger.debug(f"Adding to gt_graph node: {row}")
+                if _LOGIT: _logger.debug(f"Adding to gt_graph node: {row}")
                 for k, v in _GT_ROW_NODE_ATTR[row].items(): node_p[k][node] = v
                 node_p['size'][node] = round(node_p['size'][node] * sqrt(size))
                 node_p['font_size'][node] = round(node_p['font_size'][node] * sqrt(size))
@@ -548,7 +557,7 @@ class gc_graph():
             for ep in dst_list:
                 dst_row = ep[ep_idx.ROW]
                 src_row = ep[ep_idx.REFERENCED_BY][0][ref_idx.ROW]
-                _logger.debug(f"Adding to gt_graph edge: {src_row}->{dst_row}")
+                if _LOGIT: _logger.debug(f"Adding to gt_graph edge: {src_row}->{dst_row}")
                 edge = g.add_edge(gtg[src_row], gtg[dst_row])
                 edge_p['pen_width'][edge] = _GT_EDGE_PEN_WIDTH
                 edge_p['marker_size'][edge] = _GT_EDGE_MARKER_SIZE
@@ -581,7 +590,7 @@ class gc_graph():
                         '.html' will be appended to the nx_graph.
             size ((int, int)): Tuple of x, y output image dimensions.
         """
-        _logger.debug(f"Graph to draw:\n{self}")
+        if _LOGIT: _logger.debug(f"Graph to draw:\n{self}")
         self.gt_draw(path, size)
         self.nx_draw(path, size)
 
@@ -1188,8 +1197,10 @@ class gc_graph():
                 self.status.append(text_token({'E01013': {'len_p': len_row_p, 'len_o': self.num_outputs()}}))
 
         if _logger.getEffectiveLevel() == DEBUG:
-            if self.status: _logger.debug("Graph internal format:\n{}".format(self))
-            for m in self.status: _logger.debug(m)
+            if self.status:
+                if _LOGIT: _logger.debug("Graph internal format:\n{}".format(self))
+            for m in self.status:
+                if _LOGIT: _logger.debug(m)
             # Self consistency check.
             str(self)
 
@@ -1347,7 +1358,7 @@ class gc_graph():
         randomly sampling n.
         """
         dst_ep_tuple = tuple(filter(self.dst_filter(self.referenced_filter(), False), self.graph.values()))
-        _logger.debug("Selecting connection to remove from destination endpoint tuple: {}".format(dst_ep_tuple))
+        if _LOGIT: _logger.debug("Selecting connection to remove from destination endpoint tuple: {}".format(dst_ep_tuple))
         if dst_ep_tuple: self.remove_connection(sample(dst_ep_tuple, min((len(dst_ep_tuple), n))))
 
 
@@ -1371,7 +1382,7 @@ class gc_graph():
         randomly (no filtering) choosing a viable source endpoint.
         """
         dst_ep_list = list(filter(self.unreferenced_filter(self.dst_filter()), self.graph.values()))
-        _logger.debug("Selecting connection to add to destination endpoint list: {}".format(dst_ep_list))
+        if _LOGIT: _logger.debug("Selecting connection to add to destination endpoint list: {}".format(dst_ep_list))
         if dst_ep_list: self.add_connection([choice(dst_ep_list)])
 
 
@@ -1398,16 +1409,16 @@ class gc_graph():
         """
         if dst_ep_list:
             dst_ep = dst_ep_list[0]
-            _logger.debug("The destination endpoint requiring a connection: {}".format(dst_ep))
+            if _LOGIT: _logger.debug("The destination endpoint requiring a connection: {}".format(dst_ep))
             src_ep_list = list(filter(self.src_filter(self.src_row_filter(dst_ep[ep_idx.ROW],
                 self.type_filter([dst_ep[ep_idx.TYPE]], src_ep_filter_func, exact=False))), self.graph.values()))
             if src_ep_list:
                 src_ep = choice(src_ep_list)
-                _logger.debug("The source endpoint to make the connection: {}".format(src_ep))
+                if _LOGIT: _logger.debug("The source endpoint to make the connection: {}".format(src_ep))
                 dst_ep[ep_idx.REFERENCED_BY] = [src_ep[1:3]]
                 src_ep[ep_idx.REFERENCED_BY].append(dst_ep[1:3])
                 return True
-            _logger.debug("No viable source endpoints for destination endpoint: {}".format(dst_ep))
+            if _LOGIT: _logger.debug("No viable source endpoints for destination endpoint: {}".format(dst_ep))
         return False
 
 
@@ -1476,3 +1487,25 @@ class gc_graph():
 
             return gC
         return None
+
+
+    def input_if(self):
+        """Return the input interface definition.
+
+        Returns
+        -------
+        inputs (list(int)): Integers are ep_type_ints in the order defined in the graph.
+        """
+        inputs = sorted((ep for ep in filter(lambda x: x[ep_idx.ROW == 'I'], self.graph.values())), key=lambda x: x[ep_idx.INDEX])
+        return [ep[ep_idx.TYPE] for ep in inputs]
+
+
+    def output_if(self):
+        """Return the output interface definition.
+
+        Returns
+        -------
+        outputs (list(int)): Integers are ep_type_ints in the order defined in the graph.
+        """
+        inputs = sorted((ep for ep in filter(_OUT_FUNC, self.graph.values())), key=lambda x: x[ep_idx.INDEX])
+        return [ep[ep_idx.TYPE] for ep in inputs]
