@@ -1,6 +1,6 @@
 """Validation of gc_type."""
 
-from egp_physics.gc_type import md_table, eGC, mGC
+from egp_physics.gc_type import eGC, md_table, mGC
 
 md_table()
 

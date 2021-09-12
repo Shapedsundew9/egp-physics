@@ -1,45 +1,47 @@
 """gc_graph verficiation."""
 
 
-import pytest
 from copy import deepcopy
-from os.path import join, dirname
 from json import load
-from random import choice, randint, random
+from os.path import dirname, join
+from random import randint, random
 from numpy.random import choice
-from egp_physics.gc_graph import gc_graph, conn_idx, const_idx, DST_EP, SRC_EP, DESTINATION_ROWS, SOURCE_ROWS
-from egp_physics.ep_type import INVALID_EP_TYPE_VALUE, asint, EP_TYPE_VALUES
+
+import pytest
+from egp_physics.ep_type import EP_TYPE_VALUES, INVALID_EP_TYPE_VALUE, asint
+from egp_physics.gc_graph import (DESTINATION_ROWS, DST_EP, SOURCE_ROWS,
+                                  SRC_EP, conn_idx, const_idx, gc_graph)
 
 
 _TEST_RESULTS_JSON = 'data/test_gc_graph_results.json'
 _VALID_STRUCTURES = (
-        ('A', 'O'),
-        ('C', 'O'),     # TODO: Is this valid?
-        ('I', 'O'),     # TODO: Is this valid?
-        ('A', 'O', 'U'),
-        ('C', 'O', 'U'),
-        ('I', 'O', 'U'),     # TODO: Is this valid?
-        ('A', 'C', 'O'),
-        ('A', 'I', 'O'),
-        ('A', 'B', 'O'),
-        ('I', 'C', 'O'),     # TODO: Is this valid?
-        ('A', 'C', 'O', 'U'),
-        ('A', 'I', 'O', 'U'),
-        ('A', 'B', 'O', 'U'),
-        ('I', 'C', 'O', 'U'),     # TODO: Is this valid?
-        ('A', 'C', 'O', 'B'),
-        ('A', 'I', 'O', 'B'),
-        ('I', 'O', 'F', 'P'),
-        ('A', 'C', 'O', 'B', 'U'),
-        ('A', 'I', 'O', 'B', 'U'),
-        ('I', 'O', 'F', 'P', 'U'),
-        ('A', 'I', 'O', 'F', 'P'),
-        ('I', 'C', 'O', 'F', 'P'),
-        ('A', 'I', 'O', 'F', 'P', 'U'),
-        ('I', 'C', 'O', 'F', 'P', 'U'),
-        ('A', 'I', 'O', 'B', 'F', 'P'),
-        ('A', 'I', 'O', 'B', 'F', 'P', 'U')
-    )
+    ('A', 'O'),
+    ('C', 'O'),     # TODO: Is this valid?
+    ('I', 'O'),     # TODO: Is this valid?
+    ('A', 'O', 'U'),
+    ('C', 'O', 'U'),
+    ('I', 'O', 'U'),     # TODO: Is this valid?
+    ('A', 'C', 'O'),
+    ('A', 'I', 'O'),
+    ('A', 'B', 'O'),
+    ('I', 'C', 'O'),     # TODO: Is this valid?
+    ('A', 'C', 'O', 'U'),
+    ('A', 'I', 'O', 'U'),
+    ('A', 'B', 'O', 'U'),
+    ('I', 'C', 'O', 'U'),     # TODO: Is this valid?
+    ('A', 'C', 'O', 'B'),
+    ('A', 'I', 'O', 'B'),
+    ('I', 'O', 'F', 'P'),
+    ('A', 'C', 'O', 'B', 'U'),
+    ('A', 'I', 'O', 'B', 'U'),
+    ('I', 'O', 'F', 'P', 'U'),
+    ('A', 'I', 'O', 'F', 'P'),
+    ('I', 'C', 'O', 'F', 'P'),
+    ('A', 'I', 'O', 'F', 'P', 'U'),
+    ('I', 'C', 'O', 'F', 'P', 'U'),
+    ('A', 'I', 'O', 'B', 'F', 'P'),
+    ('A', 'I', 'O', 'B', 'F', 'P', 'U')
+)
 
 
 # Types are in string format for readability in the results file.
@@ -68,7 +70,7 @@ def random_type(p=0.0):
     return asint('builtins_int')
 
 
-def random_graph(p=0.0, must_be_valid=False):
+def random_graph(p=0.0, must_be_valid=False):  # noqa: C901
     """Create a random graph.
 
     The graph is not guaranteed to be valid when p > 0.0. If a destination row requires a type that
@@ -88,9 +90,10 @@ def random_graph(p=0.0, must_be_valid=False):
         structure = choice(_VALID_STRUCTURES)
         valid = False
         while not valid:
-            destinations = {row: randint(1, 10) for row in structure if row in DESTINATION_ROWS and not row in ('F', 'U', 'P')}
-            if 'F' in structure: destinations['F'] = 1
-            sources = {row: randint(1, 8) for row in structure if row in SOURCE_ROWS and not row in ('U', 'P')}
+            destinations = {row: randint(1, 10) for row in structure if row in DESTINATION_ROWS and row not in ('F', 'U', 'P')}
+            if 'F' in structure:
+                destinations['F'] = 1
+            sources = {row: randint(1, 8) for row in structure if row in SOURCE_ROWS and row not in ('U', 'P')}
             destination_types = [random_type(p) for row in destinations.values() for _ in range(row)]
             type_set = set(destination_types)
             valid = sum(sources.values()) >= len(type_set)
@@ -102,7 +105,7 @@ def random_graph(p=0.0, must_be_valid=False):
             source_types[randint(len(source_types))] = type_set
 
         for row in structure:
-            if not row in ('U', 'P'):
+            if row not in ('U', 'P'):
                 if row in DESTINATION_ROWS and any([src_row in structure for src_row in gc_graph.src_rows[row]]):
                     for i in range(destinations[row]):
                         rtype = destination_types.pop()
@@ -118,7 +121,8 @@ def random_graph(p=0.0, must_be_valid=False):
                             ep[3] = asint('builtins_int')
                         graph._add_ep(ep)
 
-        for _ in range(len(list(filter(graph.dst_filter(), graph.graph.values())))): graph.random_add_connection()
+        for _ in range(len(list(filter(graph.dst_filter(), graph.graph.values())))):
+            graph.random_add_connection()
         graph.normalize()
         valid = graph.validate() or not must_be_valid
     return graph
@@ -130,7 +134,8 @@ def test_graph_validation(i, case):
     gcg = gc_graph(case['graph'])
     assert i == case['i']
     assert case['valid'] == gcg.validate()
-    if not case['valid']: assert all([e in [g.code for g in gcg.status] for e in case['errors']])
+    if not case['valid']:
+        assert all([e in [g.code for g in gcg.status] for e in case['errors']])
 
 
 @pytest.mark.parametrize("i, case", enumerate(results))
@@ -145,7 +150,7 @@ def test_graph_draw(i, case):
     """Verification the draw() method is not broken."""
     gcg = gc_graph(case['graph'])
     if case['valid']:
-        gcg.draw(join(dirname(__file__), '../logs/gc_graph_'+ str(i)))
+        gcg.draw(join(dirname(__file__), '../logs/gc_graph_' + str(i)))
 
 
 @pytest.mark.parametrize("i, case", enumerate(results))
@@ -164,7 +169,8 @@ def test_graph_conversion(i, case):
     if case['valid']:
         for k, v in case['graph'].items():
             idx = const_idx.TYPE if k == 'C' else conn_idx.TYPE
-            for r in v: r[idx] = r[idx]
+            for r in v:
+                r[idx] = r[idx]
         assert case['graph'] == gcg.application_graph()
 
 
@@ -180,11 +186,12 @@ def test_remove_connection_simple(test):
     graph = random_graph()
     assert graph.validate()
 
-    #TODO: Split this out into its own test case when the graphs are staticly defined in a JSON file.
-    for _ in range(int(len(list(filter(graph.dst_filter(), graph.graph.values()))) / 2)): graph.random_remove_connection()
+    # TODO: Split this out into its own test case when the graphs are staticly defined in a JSON file.
+    for _ in range(int(len(list(filter(graph.dst_filter(), graph.graph.values()))) / 2)):
+        graph.random_remove_connection()
     graph.normalize()
     assert graph.validate()
-    #graph.draw(join(_log_location, 'graph_' + str(test)))
+    # graph.draw(join(_log_location, 'graph_' + str(test)))
 
 
 @pytest.mark.parametrize("test", range(100))
@@ -216,13 +223,15 @@ def test_stack_simple(test):
     # TODO: These random test cases need to be made static when we are confident in them.
     # Generate them into a JSON file.
     global none_limit
-    if not test: none_limit = 5000
+    if not test:
+        none_limit = 5000
 
     gA = random_graph()
     gB = random_graph()
     gC = gA.stack(gB)
 
-    if gC is None: none_limit -= 1
+    if gC is None:
+        none_limit -= 1
     assert none_limit
     assert gC is None or gC.validate()
     # if not gC is None:
@@ -247,16 +256,18 @@ def test_stack(test):
     # TODO: These random test cases need to be made static when we are confident in them.
     # Generate them into a JSON file.
     global none_limit
-    if not test: none_limit = 500
+    if not test:
+        none_limit = 500
 
     gA = random_graph(0.5, True)
     gB = random_graph(0.5, True)
     gC = gA.stack(gB)
 
-    if gC is None: none_limit -= 1
+    if gC is None:
+        none_limit -= 1
     assert none_limit
     assert gC is None or gC.validate()
-    #if not gC is None:
+    # if not gC is None:
     #    print(gA)
     #    gA.draw('gA')
     #    print(gB)

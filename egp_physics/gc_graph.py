@@ -7,26 +7,26 @@ Description: Genetic code graphs define how genetic codes are connected together
 defines the rules of the connectivity (the "physics") i.e. what is possible to observe or occur.
 """
 
-from enum import IntEnum
-from logging import NullHandler, getLogger, DEBUG
-from pprint import pformat
 from copy import deepcopy
+from enum import IntEnum
+from logging import DEBUG, NullHandler, getLogger
+from math import sqrt
+from pprint import pformat
 from random import choice, sample
-from networkx import DiGraph, spring_layout, get_node_attributes
+
 from bokeh.io import save
-from bokeh.models import Range1d, MultiLine
-from bokeh.plotting import from_networkx, figure
-from bokeh.models import Circle, LabelSet, MultiLine, NodesAndLinkedEdges, Range1d, HoverTool
-from bokeh.models import BoxSelectTool, TapTool, ColumnDataSource
-from bokeh.models.annotations import LabelSet
+from bokeh.models import (BoxSelectTool, Circle, ColumnDataSource, HoverTool,
+                          LabelSet, MultiLine, NodesAndLinkedEdges, Range1d,
+                          TapTool)
 from bokeh.palettes import Category20_20, Greys9
+from bokeh.plotting import figure, from_networkx
+from cairo import FONT_WEIGHT_BOLD
 from graph_tool import Graph
 from graph_tool.draw import graph_draw
-from cairo import FONT_WEIGHT_BOLD
-from math import sqrt
-from .ep_type import EP_TYPE_VALUES, validate, compatible, asstr, import_str, type_str, UNKNOWN_EP_TYPE_VALUE
-from .utils.text_token import text_token, register_token_code
+from networkx import DiGraph, get_node_attributes, spring_layout
 
+from .ep_type import asstr, compatible, import_str, type_str, validate
+from .utils.text_token import register_token_code, text_token
 
 _logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
@@ -38,11 +38,11 @@ DESTINATION_ROWS = ('A', 'B', 'F', 'O', 'P')
 SOURCE_ROWS = ('I', 'C', 'A', 'B')
 
 
-_REPR_LAMBDA = lambda x:x[1][ep_idx.INDEX]
-_OUT_FUNC = lambda x: x[ep_idx.ROW == 'O'] and x[ep_idx.EP_TYPE] == SRC_EP
+def _REPR_LAMBDA(x): return x[1][ep_idx.INDEX]
+def _OUT_FUNC(x): return x[ep_idx.ROW == 'O'] and x[ep_idx.EP_TYPE] == SRC_EP
 
-#TODO: Make lambda function definitions static
-#TODO: Replace all the little filter functions with static lambda functions.
+# TODO: Make lambda function definitions static
+# TODO: Replace all the little filter functions with static lambda functions.
 
 
 # NetworkX & Bokeh parameters
@@ -54,7 +54,8 @@ _NX_ROW_EDGE_ATTR = {
     'select': Greys9[0],
     'hover': Greys9[0]
 }
-_NX_CODON_NODE_ATTR = {'fill': Category20_20[15], 'select': Category20_20[14], 'hover': Category20_20[14], 'line': Greys9[0], 'label': 'Codon'}
+_NX_CODON_NODE_ATTR = {'fill': Category20_20[15], 'select': Category20_20[14],
+                       'hover': Category20_20[14], 'line': Greys9[0], 'label': 'Codon'}
 _NX_ROW_NODE_ATTR = {
     'I': {'fill': Greys9[8],         'select': Greys9[7],         'hover': Greys9[7],         'line': Greys9[0], 'label': 'I'},
     'C': {'fill': Category20_20[11], 'select': Category20_20[10], 'hover': Category20_20[10], 'line': Greys9[0], 'label': 'C'},
@@ -103,7 +104,8 @@ register_token_code('E01005', 'Constant {ref} does not have a valid value ({valu
 register_token_code('E01006', 'If row "F" is defined then row "P" must be defined.')
 register_token_code('E01007', 'Endpoint {ref} must be a source.')
 register_token_code('E01008', 'Endpoint {ref} must be a destination.')
-register_token_code('E01009', 'Source endpoint {ref1} type {type1} is not compatible with destination endpoint {ref2} type {type2}.')
+register_token_code(
+    'E01009', 'Source endpoint {ref1} type {type1} is not compatible with destination endpoint {ref2} type {type2}.')
 register_token_code('E01010', 'Destination endpoint {ref1} cannot be connected to source endpoint {ref2}.')
 register_token_code('E01011', 'Destination endpoint {ref1} cannot be connected to source endpoint {ref2} when row "F" exists.')
 register_token_code('E01012', 'Endpoint {ref1} cannot reference row B {ref2} if "F" is defined.')
@@ -189,13 +191,15 @@ def validate_value(value_str, ep_type_int):
     try:
         eval(tstr)
     except NameError:
-        if _LOGIT: _logger.debug(f'Importing {tstr}.')
+        if _LOGIT:
+            _logger.debug(f'Importing {tstr}.')
         exec(import_str(ep_type_int))
 
-    if _LOGIT: _logger.debug(f'retval = isinstance({value_str}, {tstr})')
+    if _LOGIT:
+        _logger.debug(f'retval = isinstance({value_str}, {tstr})')
     try:
         retval = eval(f'isinstance({value_str}, {tstr})')
-    except:
+    except (NameError, SyntaxError):
         return False
     return retval
 
@@ -236,10 +240,9 @@ class gc_graph():
     }
 
     """All valid row letters"""
-    #NOTE sorted_rows is used in GC signature generation.
+    # NOTE sorted_rows is used in GC signature generation.
     rows = ('I', 'C', 'F', 'A', 'B', 'U', 'O', 'P')
     sorted_rows = sorted(rows)
-
 
     def __init__(self, graph=None, internal=None):
         """Convert graph to internal format.
@@ -249,7 +252,7 @@ class gc_graph():
             graph (list/dict): A Genetic Code graph.
         """
         # TODO: Uses self.rows where appropriate to reduce the need for calculated results.
-        if not internal is None:
+        if internal is not None:
             self.load(internal)
         else:
             if graph is None:
@@ -259,10 +262,9 @@ class gc_graph():
             self.graph = self._convert_to_internal(graph)
         self.status = []
 
-
     def __repr__(self):
         """Print the graph in row order sources then destinations in index order."""
-        #NOTE: This function is used in determining the signature of a GC.
+        # NOTE: This function is used in determining the signature of a GC.
         str_list = []
         for row in gc_graph.sorted_rows:
             for ep_type in (False, True):
@@ -271,7 +273,6 @@ class gc_graph():
         string = ',\n'.join(str_list) + '\n'
         string += "(\n{},\n{}\n)\n{}".format(pformat(self.rows[0]), pformat(self.rows[1]), pformat(self.app_graph))
         return string
-
 
     def _convert_to_internal(self, graph):
         """Convert graph to internal format.
@@ -310,7 +311,6 @@ class gc_graph():
                     retval[hash_ep(ep)] = ep
         return retval
 
-
     def load(self, internal):
         """Load an internal representation.
 
@@ -331,7 +331,6 @@ class gc_graph():
         self.app_graph = self.application_graph()
         return self
 
-
     def save(self):
         """Save an internal representation.
 
@@ -344,7 +343,6 @@ class gc_graph():
                 }
         """
         return {'graph': self.graph, 'rows': list(self.rows)}
-
 
     def inject_graph(self, graph):
         """Create a gc_graph internal state object from an internal format graph.
@@ -368,11 +366,11 @@ class gc_graph():
             ep (list): An endpoint list structure to be added to the internal graph.
         """
         ep_type, ep_row = ep[ep_idx.EP_TYPE], ep[ep_idx.ROW]
-        if not ep_row in self.rows[ep_type]: self.rows[ep_type][ep_row] = 0
+        if ep_row not in self.rows[ep_type]:
+            self.rows[ep_type][ep_row] = 0
         ep[ep_idx.INDEX] = self.rows[ep_type][ep_row]
         self.graph[hash_ep(ep)] = ep
         self.rows[ep_type][ep_row] += 1
-
 
     def _remove_ep(self, ep, check=True):
         """Remove an endpoint to the internal graph format structure.
@@ -387,7 +385,6 @@ class gc_graph():
             del self.graph[hash_ep(ep)]
             self.rows[ep_type][ep_row] -= 1
 
-
     def application_graph(self):
         """Convert graph to GC format.
 
@@ -398,28 +395,15 @@ class gc_graph():
         graph = {}
         for ep in filter(self.dst_filter(), self.graph.values()):
             row = ep[ep_idx.ROW]
-            if not row in graph: graph[row] = []
-            if ep[ep_idx.REFERENCED_BY]: graph[row].append([*ep[ep_idx.REFERENCED_BY][0], ep[ep_idx.TYPE]])
+            if row not in graph:
+                graph[row] = []
+            if ep[ep_idx.REFERENCED_BY]:
+                graph[row].append([*ep[ep_idx.REFERENCED_BY][0], ep[ep_idx.TYPE]])
         for ep in filter(self.row_filter('C'), self.graph.values()):
-            if not 'C' in graph: graph['C'] = []
+            if 'C' not in graph:
+                graph['C'] = []
             graph['C'].append([ep[ep_idx.VALUE], ep[ep_idx.TYPE]])
         return graph
-
-
-    def _dst_conn_str(self, ep, ref):
-        """Create a label string for a connection between rows.
-
-        Args
-        ----
-            ep (ep): Destination endpoint.
-            ref (ref): Reference to source endpoint
-
-        Returns
-        -------
-            (str): String with the format '{ref row}{ref index} -> {ep row}{ep index}'
-        """
-        return ref[ref_idx.ROW] + str(ref[ref_idx.INDEX]) + ' -> ' + ep[ep_idx.ROW] + str(ep[ep_idx.INDEX])
-
 
     def nx_graph(self):
         """Create a directed networkx graph treating each destination endpoint as a unique node.
@@ -447,18 +431,22 @@ class gc_graph():
         gtg = {k: {SRC_EP: {}, DST_EP: {}} for k in gc_graph.rows}
         for ep in self.graph.values():
             if not ep[ep_idx.ROW] in g.nodes:
-                size = round(_NX_NODE_RADIUS * sqrt(float(self.rows[SRC_EP].get(ep[ep_idx.ROW],0) + self.rows[DST_EP].get(ep[ep_idx.ROW], 0))))
+                size = round(_NX_NODE_RADIUS *
+                             sqrt(float(self.rows[SRC_EP].get(ep[ep_idx.ROW], 0) +
+                                  self.rows[DST_EP].get(ep[ep_idx.ROW], 0))))
                 g.add_node(ep[ep_idx.ROW], text=ep[ep_idx.ROW], size=size, font_size='28px',
-                    x_offset=-8, y_offset=-19, type='GC', ep_type='N/A', value='N/A', **_NX_ROW_NODE_ATTR[ep[ep_idx.ROW]])
+                           x_offset=-8, y_offset=-19, type='GC', ep_type='N/A', value='N/A',
+                           **_NX_ROW_NODE_ATTR[ep[ep_idx.ROW]])
             if not ep[ep_idx.INDEX] in gtg[ep[ep_idx.ROW]][ep[ep_idx.EP_TYPE]]:
                 row = ep[ep_idx.ROW] if ep[ep_idx.EP_TYPE] else ep[ep_idx.ROW].lower()
                 node = row + str(ep[ep_idx.INDEX])
-                if _LOGIT: _logger.debug(f"Adding to nx_graph node: {node}")
+                if _LOGIT:
+                    _logger.debug(f"Adding to nx_graph node: {node}")
                 ep_type = ('Destination', 'Source')[ep[ep_idx.EP_TYPE]]
                 value = ep[ep_idx.VALUE] if ep[ep_idx.ROW] == 'C' else 'N/A'
                 g.add_node(node, text=node, size=_NX_NODE_RADIUS, font_size='16px',
-                    x_offset=-9, y_offset=-11, type=asstr(ep[ep_idx.TYPE]),
-                    ep_type=ep_type, value=value, **_NX_ROW_NODE_ATTR[ep[ep_idx.ROW]])
+                           x_offset=-9, y_offset=-11, type=asstr(ep[ep_idx.TYPE]),
+                           ep_type=ep_type, value=value, **_NX_ROW_NODE_ATTR[ep[ep_idx.ROW]])
                 src, dst = (ep[ep_idx.ROW], node) if ep[ep_idx.EP_TYPE] else (node, ep[ep_idx.ROW])
                 g.add_edge(src, dst, **_NX_ROW_EDGE_ATTR)
                 gtg[ep[ep_idx.ROW]][ep[ep_idx.EP_TYPE]][ep[ep_idx.INDEX]] = node
@@ -467,9 +455,9 @@ class gc_graph():
                 dst_node = gtg[ep[ep_idx.ROW]][DST_EP][ep[ep_idx.INDEX]]
                 src_node = gtg[ref[ref_idx.ROW]][SRC_EP][ref[ref_idx.INDEX]]
                 g.add_edge(src_node, dst_node, **_NX_ROW_EDGE_ATTR)
-                if _LOGIT: _logger.debug(f"Adding to nx_graph edge : {src_node}->{dst_node}")
+                if _LOGIT:
+                    _logger.debug(f"Adding to nx_graph edge : {src_node}->{dst_node}")
         return g
-
 
     def nx_draw(self, path="./nx_graph", size=(1600, 900)):
         """Draw the directed networkx graph where each destination endpoint as a unique node.
@@ -481,10 +469,10 @@ class gc_graph():
         """
         nx_graph = self.nx_graph()
         plot = figure(plot_width=size[0], plot_height=size[1],
-            tools="pan,wheel_zoom,save,reset", active_scroll='wheel_zoom',
-            title="Erasmus GP GC Internal Graph", x_range=Range1d(-110.1, 110.1), y_range=Range1d(-110.1, 110.1))
+                      tools="pan,wheel_zoom,save,reset", active_scroll='wheel_zoom',
+                      title="Erasmus GP GC Internal Graph", x_range=Range1d(-110.1, 110.1), y_range=Range1d(-110.1, 110.1))
         plot.add_tools(HoverTool(tooltips=_NX_HOVER_TOOLTIPS, anchor='top_right'), TapTool(), BoxSelectTool())
-        bk_graph=from_networkx(nx_graph, spring_layout, scale=100, center=(0, 0))
+        bk_graph = from_networkx(nx_graph, spring_layout, scale=100, center=(0, 0))
         bk_graph.node_renderer.glyph = Circle(line_color='line', size='size', fill_color="fill")
         bk_graph.node_renderer.selection_glyph = Circle(line_color='line', size='size', fill_color="select")
         bk_graph.node_renderer.hover_glyph = Circle(line_color='line', size='size', fill_color="hover")
@@ -511,11 +499,10 @@ class gc_graph():
             'font': list(label_font.values())
         })
         labels = LabelSet(x='x', y='y', text='text',
-            source=source, text_font_size='font_size', x_offset='x_offset', y_offset='y_offset',
-            text_font='font', text_font_style='bold', text_color='black')
+                          source=source, text_font_size='font_size', x_offset='x_offset', y_offset='y_offset',
+                          text_font='font', text_font_style='bold', text_color='black')
         plot.renderers.append(labels)
         save(plot, filename=f"{path}.html", title="Erasmus GP GC Internal Graph")
-
 
     def gt_graph(self):
         """Create a graph_tool graph treating rows as nodes.
@@ -549,20 +536,22 @@ class gc_graph():
             size = max((len(dst_list), len(src_list)))
             if size:
                 node = g.add_vertex()
-                if _LOGIT: _logger.debug(f"Adding to gt_graph node: {row}")
-                for k, v in _GT_ROW_NODE_ATTR[row].items(): node_p[k][node] = v
+                if _LOGIT:
+                    _logger.debug(f"Adding to gt_graph node: {row}")
+                for k, v in _GT_ROW_NODE_ATTR[row].items():
+                    node_p[k][node] = v
                 node_p['size'][node] = round(node_p['size'][node] * sqrt(size))
                 node_p['font_size'][node] = round(node_p['font_size'][node] * sqrt(size))
                 gtg[row] = node
             for ep in dst_list:
                 dst_row = ep[ep_idx.ROW]
                 src_row = ep[ep_idx.REFERENCED_BY][0][ref_idx.ROW]
-                if _LOGIT: _logger.debug(f"Adding to gt_graph edge: {src_row}->{dst_row}")
+                if _LOGIT:
+                    _logger.debug(f"Adding to gt_graph edge: {src_row}->{dst_row}")
                 edge = g.add_edge(gtg[src_row], gtg[dst_row])
                 edge_p['pen_width'][edge] = _GT_EDGE_PEN_WIDTH
                 edge_p['marker_size'][edge] = _GT_EDGE_MARKER_SIZE
         return g, node_p, edge_p
-
 
     def gt_draw(self, path="./gt_graph", size=(1600, 900)):
         """Draw the graph_tool row node graph.
@@ -574,11 +563,10 @@ class gc_graph():
         """
         g, n, e = self.gt_graph()
         graph_draw(g, vertex_text=n['text'], vertex_shape=n['shape'],
-            vertex_fill_color=n['fill_color'],  vertex_size=n['size'],
-            vertex_font_weight=n['font_weight'], vertex_font_size=n['font_size'],
-            edge_pen_width=e['pen_width'], edge_marker_size=e['marker_size'],
-            output=path+".png", output_size=size)
-
+                   vertex_fill_color=n['fill_color'],  vertex_size=n['size'],
+                   vertex_font_weight=n['font_weight'], vertex_font_size=n['font_size'],
+                   edge_pen_width=e['pen_width'], edge_marker_size=e['marker_size'],
+                   output=path+".png", output_size=size)
 
     def draw(self, path='./graph', size=(1600, 900)):
         """Draw both the nx_graph & the gt_graph.
@@ -590,10 +578,10 @@ class gc_graph():
                         '.html' will be appended to the nx_graph.
             size ((int, int)): Tuple of x, y output image dimensions.
         """
-        if _LOGIT: _logger.debug(f"Graph to draw:\n{self}")
+        if _LOGIT:
+            _logger.debug(f"Graph to draw:\n{self}")
         self.gt_draw(path, size)
         self.nx_draw(path, size)
-
 
     def add_inputs(self, inputs):
         """Create and add unconnected row I endpoints.
@@ -608,7 +596,6 @@ class gc_graph():
             self._add_ep([SRC_EP, 'I', index, i, []])
             self._add_ep([DST_EP, 'U', index, i, [['I', index]]])
 
-
     def add_outputs(self, outputs):
         """Create and add unconnected row O endpoints.
 
@@ -618,8 +605,8 @@ class gc_graph():
         ----
         outputs (iteratble): ep_types in integer format.
         """
-        for index, i in enumerate(outputs): self._add_ep([DST_EP, 'O', index, i, []])
-
+        for index, i in enumerate(outputs):
+            self._add_ep([DST_EP, 'O', index, i, []])
 
     def endpoint_filter(self, ep_type, filter_func=lambda x: True):
         """Define a filter that only returns endpoints which have endpoint type == ep_type.
@@ -636,7 +623,6 @@ class gc_graph():
         """
         return lambda x: x[ep_idx.EP_TYPE] == ep_type and filter_func(x)
 
-
     def src_filter(self, filter_func=lambda x: True):
         """Define a filter that only returns endpoints of source type.
 
@@ -651,7 +637,6 @@ class gc_graph():
         """
         return lambda x: x[ep_idx.EP_TYPE] and filter_func(x)
 
-
     def dst_filter(self, filter_func=lambda x: True, include_U=True):
         """Define a filter that only returns endpoints of destination type.
 
@@ -665,11 +650,10 @@ class gc_graph():
             (func): A function for a filter() that will return only destination endpoints.
         """
         if include_U:
-            retval = lambda x: not x[ep_idx.EP_TYPE] and filter_func(x)
+            def retval(x): return not x[ep_idx.EP_TYPE] and filter_func(x)
         else:
-            retval = lambda x: not x[ep_idx.EP_TYPE] and x[ep_idx.ROW] != 'U' and filter_func(x)
+            def retval(x): return not x[ep_idx.EP_TYPE] and x[ep_idx.ROW] != 'U' and filter_func(x)
         return retval
-
 
     def src_row_filter(self, row, filter_func=lambda x: True):
         """Define a filter that only returns endpoints on source rows for the specified row.
@@ -685,14 +669,16 @@ class gc_graph():
             (func): A function for a filter() that will return only source endpoints.
         """
         if self.has_f():
-            if row == 'B': src_rows = gc_graph.src_rows['A']
-            elif row == 'O': src_rows = gc_graph.src_rows['B']
-            else: src_rows = gc_graph.src_rows[row]
+            if row == 'B':
+                src_rows = gc_graph.src_rows['A']
+            elif row == 'O':
+                src_rows = gc_graph.src_rows['B']
+            else:
+                src_rows = gc_graph.src_rows[row]
         else:
             src_rows = gc_graph.src_rows[row]
 
         return lambda x: x[ep_idx.EP_TYPE] and x[ep_idx.ROW] in src_rows and filter_func(x)
-
 
     def rows_filter(self, rows, filter_func=lambda x: True):
         """Define a filter that only returns endpoints in that are in a row in rows.
@@ -709,7 +695,6 @@ class gc_graph():
         """
         return lambda x: any(map(lambda p: p == x[ep_idx.ROW], rows)) and filter_func(x)
 
-
     def row_filter(self, row, filter_func=lambda x: True):
         """Define a filter that only returns endpoints in that are in a specific row.
 
@@ -724,7 +709,6 @@ class gc_graph():
             (func): A function for a filter() that will return endpoints in 'row'.
         """
         return lambda x: x[ep_idx.ROW] == row and filter_func(x)
-
 
     def type_filter(self, ep_types, filter_func=lambda x: True, exact=True):
         """Define a filter that only returns endpoints with a ep_type in 'ep_types'.
@@ -743,7 +727,6 @@ class gc_graph():
         """
         return lambda x: any(map(lambda p: p == x[ep_idx.TYPE], ep_types)) and filter_func(x)
 
-
     def unreferenced_filter(self, filter_func=lambda x: True):
         """Define a filter that only returns unreferenced endpoints.
 
@@ -753,7 +736,6 @@ class gc_graph():
         """
         return lambda x: not x[ep_idx.REFERENCED_BY] and filter_func(x)
 
-
     def referenced_filter(self, filter_func=lambda x: True):
         """Define a filter that only returns referenced endpoints.
 
@@ -762,7 +744,6 @@ class gc_graph():
             (func): A function for a filter() that will return referenced endpoints.
         """
         return lambda x: x[ep_idx.REFERENCED_BY] and filter_func(x)
-
 
     def ref_filter(self, ref):
         """Define a filter that only returns the endpoint at ref.
@@ -776,39 +757,6 @@ class gc_graph():
             (func): A function for a filter() that will return the endpoint 'ref'.
         """
         return lambda x: x[ep_idx.ROW] == ref[ref_idx.ROW] and x[ep_idx.INDEX] == ref[ref_idx.INDEX]
-
-
-    def ref_by_filter(self, ref_by, filter_func=lambda x: True):
-        """Define a filter that only returns the endpoints referenced by ref_by.
-
-        Args
-        ----
-            ref_by (iter): An iterable of genetic code graph endpoint references [ROW, INDEX].
-
-        Returns
-        -------
-            (func): A function for a filter() that will return the endpoints referenced by 'ref_by'.
-        """
-        return lambda x: any(map(lambda p: p == ref_by, x[ep_idx.REFERENCED_BY])) and filter_func(x)
-
-
-    def viable_endpoint_filter(self, endpoint):
-        """For a given connection endpoint in the graph row return a list of all viable connection endpoints.
-
-        Viable endpoints must be of the opposite end point type, have a compatible type and be in a row
-        that is permitted to connect.
-
-        Args
-        ----
-            endpoint (endpoint): An endpoint in the graph internal representation.
-
-        Returns
-        -------
-            (list): A list of viable endpoints.
-        """
-        return [n for n in filter(self.endpoint_filter(not endpoint[ep_idx.EP_TYPE], self.row_filter(gc_graph.src_rows[endpoint[ep_idx.ROW]],
-            self.type_filter(endpoint[ep_idx.TYPE]))), self.graph.values())]
-
 
     def _num_eps(self, row, ep_type):
         """Return the number of ep_type endpoints in row.
@@ -824,25 +772,14 @@ class gc_graph():
         -------
         (int): Count of the specified endpoints.
         """
-        if _logger.getEffectiveLevel() == DEBUG:
+        if _LOGIT:
             count = len(list(filter(self.row_filter(row, self.endpoint_filter(ep_type)), self.graph.values())))
             record = self.rows[ep_type].get(row, 0)
             if count != record:
                 _logger.warning(
                     'Number of endpoints in {} row "{}" of gc_graph inconsistent: Counted {} recorded {}.'.format(
-                    ('destination', 'source')[ep_type], row, count, record))
+                        ('destination', 'source')[ep_type], row, count, record))
         return self.rows[ep_type].get(row, 0)
-
-
-    def has_i(self):
-        """Test if row I is defined in the graph.
-
-        Returns
-        -------
-            (bool): True if row I exists.
-        """
-        return bool(self._num_eps('I', SRC_EP))
-
 
     def has_a(self):
         """Test if row A is defined in the graph.
@@ -855,17 +792,6 @@ class gc_graph():
         """
         return bool(self._num_eps('A', SRC_EP)) or bool(self._num_eps('A', DST_EP))
 
-
-    def has_c(self):
-        """Test if there are constants in the graph.
-
-        Returns
-        -------
-            (bool): True if at least one constant is defined.
-        """
-        return bool(self._num_eps('C', SRC_EP))
-
-
     def has_f(self):
         """Test if this is a flow control graph.
 
@@ -874,7 +800,6 @@ class gc_graph():
             (bool): True if row 'F' is defined.
         """
         return bool(self._num_eps('F', DST_EP))
-
 
     def has_b(self):
         """Test if row B is defined in the graph.
@@ -885,17 +810,6 @@ class gc_graph():
         """
         return bool(self._num_eps('B', SRC_EP)) or bool(self._num_eps('B', DST_EP))
 
-
-    def num_constants(self):
-        """Return the number of constants to the graph.
-
-        Returns
-        -------
-            (int): The number of graph constants.
-        """
-        return self._num_eps('C', SRC_EP)
-
-
     def num_inputs(self):
         """Return the number of inputs to the graph.
 
@@ -904,7 +818,6 @@ class gc_graph():
             (int): The number of graph inputs.
         """
         return self._num_eps('I', SRC_EP)
-
 
     def num_outputs(self):
         """Return the number of outputs from the graph.
@@ -915,64 +828,7 @@ class gc_graph():
         """
         return self._num_eps('O', DST_EP)
 
-
-    def row_num_inputs(self, row):
-        """Return the number of inputs to a specific graph row.
-
-        Note that the input row ('I') and constant row ('C') have no inputs.
-        In both cases 0 will be returned.
-
-        Args
-        ----
-            row (string): A valid graph row i.e. in gc_graph.rows
-
-        Returns
-        -------
-            (int): The number of inputs to the speficied graph row.
-        """
-        return self._num_eps(row, DST_EP)
-
-
-    def row_num_outputs(self, row):
-        """Return the number of outputs to a specific graph row.
-
-        Note that the output row ('O') and the flow row ('F') have no outputs.
-        In both cases 0 will be returned.
-
-        Args
-        ----
-            row (string): A valid graph row i.e. in gc_graph.rows
-
-        Returns
-        -------
-            (int): The number of outputs to the speficied graph row.
-        """
-        return self._num_eps(row, SRC_EP)
-
-
-    def src_references(self):
-        """Return the list of source row connection references.
-
-        Returns
-        -------
-            (list): In the format:
-                [
-                    [[ref, ref, ...], [ref, ref, ...], ...], # Row I srcs (outputs)
-                    [[ref, ref, ...], [ref, ref, ...], ...], # Row C srcs (outputs)
-                    [[ref, ref, ...], [ref, ref, ...], ...], # Row A srcs (outputs)
-                    [[ref, ref, ...], [ref, ref, ...], ...], # Row B srcs (outputs)
-                ]
-        """
-        retval = []
-        for row in ('I', 'C', 'A', 'B'):
-            row_src_refs = []
-            for ep in filter(self.row_filter(row, self.src_filter()), self.graph.values()):
-                row_src_refs.append(ep[ep_idx.REFERENCED_BY])
-            retval.append(row_src_refs)
-        return retval
-
-
-    def normalize(self, modify_inputs=False):
+    def normalize(self):
         """Make the graph consistent.
 
         The make the graph consistent the following operations are performed:
@@ -983,21 +839,12 @@ class gc_graph():
             5. self.app_graph is regenerated
             6. Check a valid steady state has been achieved
         """
-        #1 Connect all destinations to existing sources if possible
+        # 1 Connect all destinations to existing sources if possible
         self.connect_all()
 
-        #2 Create new inputs for any destinations that are still unconnected.
-        if modify_inputs:
-            num_inputs = self.num_inputs()
-            for ep in list(filter(self.dst_filter(self.unreferenced_filter()), self.graph.values())):
-                new_input_ep = [SRC_EP, 'I', num_inputs, ep[ep_idx.TYPE], [[ep[ep_idx.ROW], ep[ep_idx.INDEX]]]]
-                self._add_ep(new_input_ep)
-                ep[ep_idx.REFERENCED_BY].append(['I', num_inputs])
-                num_inputs += 1
-
-        #3 Purge any unconnected constants & inputs.
+        # 3 Purge any unconnected constants & inputs.
         removed = False
-        target_rows = ('C','I') if modify_inputs else ('C',)
+        target_rows = ('C',)
         for ep in list(filter(self.rows_filter(target_rows, self.unreferenced_filter()), self.graph.values())):
             removed = True
             self._remove_ep(ep)
@@ -1024,19 +871,19 @@ class gc_graph():
                     ep[ep_idx.INDEX] = r_map[ep[ep_idx.INDEX]]
                     self.graph[hash_ep(ep)] = ep
 
-        #4 Reference all unconnected sources in row 'U'
+        # 4 Reference all unconnected sources in row 'U'
         row_u_list = list(filter(self.row_filter('U'), self.graph.values()))
-        for ep in row_u_list: self._remove_ep(ep, check=False)
+        for ep in row_u_list:
+            self._remove_ep(ep, check=False)
         unreferenced = list(filter(self.src_filter(self.unreferenced_filter()), self.graph.values()))
         for i, ep in enumerate(unreferenced):
             self._add_ep([DST_EP, 'U', i, ep[ep_idx.TYPE], [[*ep[1:3]]]])
 
-        #5 self.app_graph is regenerated
+        # 5 self.app_graph is regenerated
         self.app_graph = self.application_graph()
 
-        #6 Check a valid steady state has been achieved
+        # 6 Check a valid steady state has been achieved
         return self.is_stable()
-
 
     def is_stable(self):
         """Determine if the graph is in a stable state.
@@ -1051,8 +898,7 @@ class gc_graph():
         """
         return not list(filter(self.unreferenced_filter(self.dst_filter()), self.graph.values()))
 
-
-    def validate(self, codon=False):
+    def validate(self, codon=False):   # noqa: C901
         """Check if the graph is valid.
 
         The graph should be in a steady state before calling.
@@ -1091,38 +937,40 @@ class gc_graph():
         """
         self.status = []
 
-        #1
-        if self.num_outputs() == 0: self.status.append(text_token({'E01000': {}}))
+        # 1
+        if self.num_outputs() == 0:
+            self.status.append(text_token({'E01000': {}}))
 
-        #2a.
+        # 2a.
         for row in filter(self.src_filter(self.unreferenced_filter()), self.graph.values()):
             refs = [ep[ep_idx.REFERENCED_BY][0] for ep in filter(self.row_filter('U'), self.graph.values())]
             if not any([row[ep_idx.ROW] == r and row[ep_idx.INDEX] == i for r, i in refs]):
                 self.status.append(text_token({'E01001': {'ep_type': ['Destination', 'Source'][row[ep_idx.EP_TYPE]],
-                    'ref': [row[ep_idx.ROW], row[ep_idx.INDEX]]}}))
+                                                          'ref': [row[ep_idx.ROW], row[ep_idx.INDEX]]}}))
 
-        #2b.
+        # 2b.
         for ep in filter(self.row_filter('U'), self.graph.values()):
             if len(ep[ep_idx.REFERENCED_BY]) > 1:
                 self.status.append(text_token({'E01014': {'u_ep': [*ep[1:3]], 'refs': ep[ep_idx.REFERENCED_BY]}}))
 
-        #2c.
+        # 2c.
         for ep in filter(self.row_filter('U'), self.graph.values()):
             if ep[ep_idx.REFERENCED_BY][0][ref_idx.ROW] == 'C':
-                if not 'C' in self.app_graph or ep[ep_idx.REFERENCED_BY][0][ref_idx.INDEX] >= len(self.app_graph['C']):
+                if 'C' not in self.app_graph or ep[ep_idx.REFERENCED_BY][0][ref_idx.INDEX] >= len(self.app_graph['C']):
                     self.status.append(text_token({'E01015': {'u_ep': [*ep[1:3]], 'refs': ep[ep_idx.REFERENCED_BY]}}))
 
-        #3
+        # 3
         for row in filter(self.dst_filter(self.unreferenced_filter()), self.graph.values()):
             self.status.append(text_token({'E01001': {'ep_type': ['Destination', 'Source'][row[ep_idx.EP_TYPE]],
-                'ref': [row[ep_idx.ROW], row[ep_idx.INDEX]]}}))
+                                                      'ref': [row[ep_idx.ROW], row[ep_idx.INDEX]]}}))
 
-        #4
+        # 4
         for row in filter(lambda x: not validate(x[ep_idx.TYPE]), self.graph.values()):
             self.status.append(text_token({'E01002': {'ep_type': ['Destination', 'Source'][row[ep_idx.EP_TYPE]],
-                'ref': [row[ep_idx.ROW], row[ep_idx.INDEX]], 'type_errors': 'Does not exist.'}}))
+                                                      'ref': [row[ep_idx.ROW], row[ep_idx.INDEX]],
+                                                      'type_errors': 'Does not exist.'}}))
 
-        #5
+        # 5
         ref_dict = {k: [] for k in gc_graph.rows}
         ep_dict = deepcopy(ref_dict)
         for row in self.graph.values():
@@ -1138,211 +986,78 @@ class gc_graph():
                 if not (min(v) == 0 and max(v) == len(set(v)) - 1):
                     self.status.append(text_token({'E01004': {'row': k, 'indices': sorted(v)}}))
 
-        #6
-        for row in filter(lambda x: x[ep_idx.ROW] == 'C' and not validate_value(x[ep_idx.VALUE], x[ep_idx.TYPE]), self.graph.values()):
-            self.status.append(text_token({'E01005': {'ref': [row[ep_idx.ROW], row[ep_idx.INDEX]], 'value': row[ep_idx.VALUE],
-                'type': asstr(row[ep_idx.TYPE])}}))
+        # 6
+        for row in filter(lambda x: x[ep_idx.ROW] == 'C' and not validate_value(x[ep_idx.VALUE],
+                          x[ep_idx.TYPE]), self.graph.values()):
+            self.status.append(text_token({'E01005': {'ref': [row[ep_idx.ROW], row[ep_idx.INDEX]],
+                                                      'value': row[ep_idx.VALUE],
+                                                      'type': asstr(row[ep_idx.TYPE])}}))
 
-        #7
+        # 7
         if self.has_f() != bool(len(list(filter(self.row_filter('P'), self.graph.values())))):
-                self.status.append(text_token({'E01006': {}}))
+            self.status.append(text_token({'E01006': {}}))
 
         # 8 & 9
         # FIXME: It is not possible to tell from the graph whether this is a codon or not
 
-        #10
+        # 10
         for row in filter(self.row_filter('I', self.dst_filter()), self.graph.values()):
             self.status.append(text_token({'E01007': {'ref': [row[ep_idx.ROW], row[ep_idx.INDEX]]}}))
 
-        #11
+        # 11
         for row in filter(self.rows_filter(('O', 'P'), self.src_filter()), self.graph.values()):
             self.status.append(text_token({'E01008': {'ref': [row[ep_idx.ROW], row[ep_idx.INDEX]]}}))
 
-        #12
+        # 12
         for row in filter(self.dst_filter(), self.graph.values()):
             for ref in row[ep_idx.REFERENCED_BY]:
                 try:
                     src = next(filter(self.src_filter(self.ref_filter(ref)), self.graph.values()))
                     if not compatible(src[ep_idx.TYPE], row[ep_idx.TYPE]):
-                        self.status.append(text_token({'E01009': {'ref1': [src[ep_idx.ROW], src[ep_idx.INDEX]], 'type1': asstr(src[ep_idx.TYPE]),
-                            'ref2': [row[ep_idx.ROW], row[ep_idx.INDEX]], 'type2': asstr(row[ep_idx.TYPE])}}))
+                        self.status.append(text_token({'E01009': {'ref1': [src[ep_idx.ROW], src[ep_idx.INDEX]],
+                                                                  'type1': asstr(src[ep_idx.TYPE]),
+                                                                  'ref2': [row[ep_idx.ROW], row[ep_idx.INDEX]],
+                                                                  'type2': asstr(row[ep_idx.TYPE])}}))
                 except StopIteration:
                     pass
 
-        #13
+        # 13
         for row in filter(self.dst_filter(), self.graph.values()):
             for ref in row[ep_idx.REFERENCED_BY]:
                 if ref[ref_idx.ROW] not in gc_graph.src_rows[row[ep_idx.ROW]]:
                     self.status.append(text_token({'E01010': {'ref1': [row[ep_idx.ROW], row[ep_idx.INDEX]],
-                        'ref2': [ref[ref_idx.ROW], ref[ref_idx.INDEX]]}}))
+                                                              'ref2': [ref[ref_idx.ROW], ref[ref_idx.INDEX]]}}))
 
-        #14a
+        # 14a
         if self.has_f():
             for row in filter(self.row_filter('B', self.dst_filter()), self.graph.values()):
                 for ref in filter(lambda x: x[ref_idx.ROW] == 'A', row[ep_idx.REFERENCED_BY]):
                     self.status.append(text_token({'E01011': {'ref1': [row[ep_idx.ROW], row[ep_idx.INDEX]],
-                        'ref2': [ref[ref_idx.ROW], ref[ref_idx.INDEX]]}}))
+                                                              'ref2': [ref[ref_idx.ROW], ref[ref_idx.INDEX]]}}))
 
-        #14b
+        # 14b
         if self.has_f() and self.has_b():
             for row in filter(self.row_filter('O'), self.graph.values()):
                 for ref in row[ep_idx.REFERENCED_BY]:
                     if ref[ref_idx.ROW] == 'B':
-                        self.status.append(text_token({'E01012': {'ref1': [row[ep_idx.ROW], row[ep_idx.INDEX]], 'ref2': ref}}))
+                        self.status.append(text_token({'E01012': {'ref1': [row[ep_idx.ROW],
+                                                                  row[ep_idx.INDEX]], 'ref2': ref}}))
 
-        #14c
+        # 14c
         if self.has_f():
             len_row_p = len(list(filter(self.row_filter('P'), self.graph.values())))
             if len_row_p != self.num_outputs():
                 self.status.append(text_token({'E01013': {'len_p': len_row_p, 'len_o': self.num_outputs()}}))
 
-        if _logger.getEffectiveLevel() == DEBUG:
+        if _LOGIT:
             if self.status:
-                if _LOGIT: _logger.debug("Graph internal format:\n{}".format(self))
+                _logger.debug("Graph internal format:\n{}".format(self))
             for m in self.status:
-                if _LOGIT: _logger.debug(m)
+                _logger.debug(m)
             # Self consistency check.
             str(self)
 
         return not self.status
-
-
-    def random_mutation(self):
-        """Randomly selects a way to mutate the graph and executes it.
-
-        Mutations are single steps e.g. a disconnection of a source endpoint. The
-        reconnection is a repair(). Compound changes are only permitted when
-        there is only one possible repair option (excluding undoing the change) e.g.
-        adding row 'F' requires that row 'P' must be added however, both rows endpoints
-        may be connected many ways.
-
-        Changes are likely to break the graph but they may not. For example,
-        disconnecting a source end point will break it but change the type
-        of an input source or the value of a constant may not.
-
-        Each random change has the same probability:
-            1. Add/remove a source end point.
-            2. Add/remove a destination endpoint.
-            3. Mutate the type of an endpoint.
-            4. Mutate a constant.
-            5. Add/remove 'F' (and 'P')
-
-        """
-        change_functions = (
-            self.random_add_src_ep,
-            self.random_remove_src_ep,
-            self.random_add_dst_ep,
-            self.random_remove_dst_ep
-        )
-        choice(change_functions)()
-
-
-    def random_add_src_ep(self):
-        """Randomly choose a source row and add an endpoint of unknown type."""
-        src_rows = ['I', 'C', 'A']
-        if self.has_b(): src_rows.append('B')
-        self.add_src_ep(choice(src_rows))
-
-
-    def add_src_ep(self, row):
-        """Add an endpoint to row of UNKNOWN_EP_TYPE_VALUE."""
-        self._add_ep([SRC_EP, row, None, UNKNOWN_EP_TYPE_VALUE, []])
-        if row == 'I': self.status.append(text_token({'I01000': {}}))
-        elif row == 'A': self.status.append(text_token({'I01100': {}}))
-        elif row == 'B': self.status.append(text_token({'I01200': {}}))
-
-
-    def random_remove_src_ep(self):
-        """Randomly choose a source row and randomly remove an endpoint."""
-        src_rows = [r for r in gc_graph.src_rows['O'] if r in self.rows[SRC_EP]]
-        ep_list = self.unreferenced_filter(self.row_filter(choice(src_rows), self.src_filter()))
-        self.remove_src_ep(tuple(choice(ep_list)))
-
-
-    def remove_src_ep(self, ep_list):
-        """Remove a source endpoint."""
-        if ep_list:
-            ep = ep_list[0]
-            ep_row = ep[ep_idx.ROW]
-            self._remove_ep(ep)
-            if ep_row == 'I': self.status.append(text_token({'I01001': {}}))
-            elif ep_row == 'A': self.status.append(text_token({'I01101': {}}))
-            elif ep_row == 'B': self.status.append(text_token({'I01201': {}}))
-        else:
-            self.status.append(text_token({'I01900': {}}))
-
-
-    def random_add_dst_ep(self):
-        """Randomly choose a destination row and add an endpoint of unknown type."""
-        dst_rows = ['A', 'O']
-        if self.has_b(): dst_rows.append('B')
-        self.add_dst_ep(choice(dst_rows))
-
-
-    def add_dst_ep(self, row):
-        """Add an endpoint to row of UNKNOWN_EP_TYPE_VALUE."""
-        self._add_ep([DST_EP, row, None, UNKNOWN_EP_TYPE_VALUE, []])
-        if row == 'O':
-            self.status.append(text_token({'I01302': {}}))
-            if self.has_f():
-                self._add_ep([DST_EP, 'P', None, UNKNOWN_EP_TYPE_VALUE, []])
-                self.status.append(text_token({'I01402': {}}))
-        elif row == 'A': self.status.append(text_token({'I01102': {}}))
-        elif row == 'B': self.status.append(text_token({'I01202': {}}))
-
-
-    def remove_rows(self, rows):
-        """Remove rows from the graph."""
-        # Find all endpoints from the rows to delete, collect the endpoints that reference them
-        # and delete the row endpoints.
-        ref_list = []
-        for k in tuple(filter(lambda x: x[0] in rows, self.graph.keys())):
-            ref_list.extend([hash_ref(ref, not self.graph[k][ep_idx.EP_TYPE]) for ref in self.graph[k][ep_idx.REFERENCED_BY]])
-            del self.graph[k]
-
-        # Update the row endpoint count tracking
-        for row in rows:
-            if row in self.rows[SRC_EP]: del self.rows[SRC_EP][row]
-            if row in self.rows[DST_EP]: del self.rows[DST_EP][row]
-
-        # Find all the references to deleted rows and delete them
-        for ep_hash in ref_list:
-            refs = self.graph[ep_hash][ep_idx.REFERENCED_BY]
-            del_list = [pos for pos, ref in enumerate(refs) if ref[ref_idx.ROW] in rows]
-            for victim in del_list: del refs[victim]
-
-
-    def random_remove_dst_ep(self):
-        """Randomly choose a destination row and randomly remove an endpoint."""
-        dst_rows = ['A', 'O']
-        if self.has_b(): dst_rows.append('B')
-        ep_list = self.unreferenced_filter(self.row_filter(choice(dst_rows), self.dst_filter))
-        self.remove_dst_ep(tuple(choice(ep_list)))
-
-
-    def remove_dst_ep(self, ep_list):
-        """Remove a destination endpoint.
-
-        Args
-        ----
-            ep_list (list): A list of destination endpoints. Only the first endpoint
-                            in the list will be removed.
-        """
-        if ep_list:
-            ep = ep_list[0]
-            ep_row = ep[ep_idx.ROW]
-            self._remove_ep(ep)
-            if ep_row == 'O':
-                self.status.append(text_token({'I01303': {}}))
-                if self.has_f():
-                    ep[ep_idx.ROW] = 'P'
-                    self._remove_ep(ep)
-                    self.status.append(text_token({'I01403': {}}))
-            elif ep_row == 'A': self.status.append(text_token({'I01103': {}}))
-            elif ep_row == 'B': self.status.append(text_token({'I01203': {}}))
-        else:
-            self.status.append(text_token({'I01900': {}}))
-
 
     def random_remove_connection(self, n=1):
         """Randomly choose n connections and remove them.
@@ -1358,9 +1073,10 @@ class gc_graph():
         randomly sampling n.
         """
         dst_ep_tuple = tuple(filter(self.dst_filter(self.referenced_filter(), False), self.graph.values()))
-        if _LOGIT: _logger.debug("Selecting connection to remove from destination endpoint tuple: {}".format(dst_ep_tuple))
-        if dst_ep_tuple: self.remove_connection(sample(dst_ep_tuple, min((len(dst_ep_tuple), n))))
-
+        if _LOGIT:
+            _logger.debug("Selecting connection to remove from destination endpoint tuple: {}".format(dst_ep_tuple))
+        if dst_ep_tuple:
+            self.remove_connection(sample(dst_ep_tuple, min((len(dst_ep_tuple), n))))
 
     def remove_connection(self, dst_ep_tuple):
         """Remove connections to all the destination endpoints.
@@ -1374,7 +1090,6 @@ class gc_graph():
             dst_ep[ep_idx.REFERENCED_BY] = []
             src_ep[ep_idx.REFERENCED_BY].remove([dst_ep[ep_idx.ROW], dst_ep[ep_idx.INDEX]])
 
-
     def random_add_connection(self):
         """Randomly choose two endpoints to connect.
 
@@ -1382,9 +1097,10 @@ class gc_graph():
         randomly (no filtering) choosing a viable source endpoint.
         """
         dst_ep_list = list(filter(self.unreferenced_filter(self.dst_filter()), self.graph.values()))
-        if _LOGIT: _logger.debug("Selecting connection to add to destination endpoint list: {}".format(dst_ep_list))
-        if dst_ep_list: self.add_connection([choice(dst_ep_list)])
-
+        if _LOGIT:
+            _logger.debug("Selecting connection to add to destination endpoint list: {}".format(dst_ep_list))
+        if dst_ep_list:
+            self.add_connection([choice(dst_ep_list)])
 
     def connect_all(self):
         """Connect all unconnected destination endpoints.
@@ -1393,8 +1109,8 @@ class gc_graph():
         If there is no viable source endpoint the destination endpoint will remain unconnected.
         """
         dst_ep_list = list(filter(self.unreferenced_filter(self.dst_filter()), self.graph.values()))
-        for dst_ep in dst_ep_list: self.add_connection([dst_ep])
-
+        for dst_ep in dst_ep_list:
+            self.add_connection([dst_ep])
 
     def add_connection(self, dst_ep_list, src_ep_filter_func=lambda x: True):
         """Add a connection to source from destination specified by src_ep_filter.
@@ -1409,18 +1125,22 @@ class gc_graph():
         """
         if dst_ep_list:
             dst_ep = dst_ep_list[0]
-            if _LOGIT: _logger.debug("The destination endpoint requiring a connection: {}".format(dst_ep))
+            if _LOGIT:
+                _logger.debug("The destination endpoint requiring a connection: {}".format(dst_ep))
             src_ep_list = list(filter(self.src_filter(self.src_row_filter(dst_ep[ep_idx.ROW],
-                self.type_filter([dst_ep[ep_idx.TYPE]], src_ep_filter_func, exact=False))), self.graph.values()))
+                                                                          self.type_filter([dst_ep[ep_idx.TYPE]],
+                                                                          src_ep_filter_func, exact=False))),
+                                                                          self.graph.values()))
             if src_ep_list:
                 src_ep = choice(src_ep_list)
-                if _LOGIT: _logger.debug("The source endpoint to make the connection: {}".format(src_ep))
+                if _LOGIT:
+                    _logger.debug("The source endpoint to make the connection: {}".format(src_ep))
                 dst_ep[ep_idx.REFERENCED_BY] = [src_ep[1:3]]
                 src_ep[ep_idx.REFERENCED_BY].append(dst_ep[1:3])
                 return True
-            if _LOGIT: _logger.debug("No viable source endpoints for destination endpoint: {}".format(dst_ep))
+            if _LOGIT:
+                _logger.debug("No viable source endpoints for destination endpoint: {}".format(dst_ep))
         return False
-
 
     def stack(self, gB):
         """Stack this graph on top of graph gB.
@@ -1449,7 +1169,6 @@ class gc_graph():
             row, idx, typ = ep[ep_idx.ROW], ep[ep_idx.INDEX], ep[ep_idx.TYPE]
             if row == 'I':
                 ep_list.append([False, 'B', idx, typ, []])
-                gB_has_I = True
             elif row == 'O':
                 ep_list.append([True, 'B', idx, typ, [['O', idx]]])
                 ep_list.append([False, 'O', idx, typ, [['B', idx]]])
@@ -1462,10 +1181,10 @@ class gc_graph():
             elif row == 'O':
                 ep_list.append([True, 'A', idx, typ, []])
 
-
         # Make a gC gc_graph object
         gC = gc_graph()
-        for ep in ep_list: gC._add_ep(ep)
+        for ep in ep_list:
+            gC._add_ep(ep)
 
         # Preferentially connect A --> B but only 1:1
         gA_gB_connection = False
@@ -1488,7 +1207,6 @@ class gc_graph():
             return gC
         return None
 
-
     def input_if(self):
         """Return the input interface definition.
 
@@ -1496,9 +1214,9 @@ class gc_graph():
         -------
         inputs (list(int)): Integers are ep_type_ints in the order defined in the graph.
         """
-        inputs = sorted((ep for ep in filter(lambda x: x[ep_idx.ROW == 'I'], self.graph.values())), key=lambda x: x[ep_idx.INDEX])
+        inputs = sorted((ep for ep in filter(lambda x: x[ep_idx.ROW == 'I'],
+                                             self.graph.values())), key=lambda x: x[ep_idx.INDEX])
         return [ep[ep_idx.TYPE] for ep in inputs]
-
 
     def output_if(self):
         """Return the output interface definition.

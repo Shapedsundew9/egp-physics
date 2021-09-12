@@ -4,19 +4,18 @@ This test module assumes it has access to a postgresql instance as configured in
 data/test_glib_config.json. The user requires database CREATE & DELETE rights.
 """
 
-import pytest
-from os.path import join, dirname
-from json import load
-from hashlib import md5
-from pprint import pformat
 from collections import Counter
-from statistics import stdev
+from hashlib import md5
+from json import load
 from logging import getLogger
+from os.path import dirname, join
+from pprint import pformat
 from random import choice, randint
-from egp_physics.physics import gc_insert
-from egp_physics.gc_type import eGC, mGC
-from egp_physics.gc_graph import gc_graph
+from statistics import stdev
 
+from egp_physics.gc_graph import gc_graph
+from egp_physics.gc_type import eGC, mGC
+from egp_physics.physics import gc_insert
 
 # Load the results file.
 with open(join(dirname(__file__), "data/test_physics_results.json"), "r") as file_ptr:
@@ -55,7 +54,7 @@ def test_basic_insert_2_simple():
     of types and insertion location is random and so several variants
     may be created and one of which is correct.
     """
-    tgc = mGC(_graph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O':[['A', 0, 2]]}), sv=False)
+    tgc = mGC(_graph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O': [['A', 0, 2]]}), sv=False)
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
     graph = gc_insert(None, tgc, igc, 'A')[0]['graph']
     code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
@@ -74,7 +73,7 @@ def test_basic_insert_2_simple():
 
 def test_basic_insert_3_simple():
     """Test case #3 of GC insertion."""
-    tgc = mGC(_graph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O':[['A', 0, 2]]}), sv=False)
+    tgc = mGC(_graph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O': [['A', 0, 2]]}), sv=False)
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
     graph = gc_insert(None, tgc, igc, 'B')[0]['graph']
     code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
@@ -183,19 +182,23 @@ def test_basic_insert_1_stats():
     """
     tgc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    f = lambda: md5(bytearray(pformat(gc_insert(None, tgc, igc, 'A')[0]['graph']), encoding='ascii')).hexdigest()
-    func = lambda x: [f() for _ in range(x)]
+    def f(): return md5(bytearray(pformat(gc_insert(None, tgc, igc, 'A')[0]['graph']), encoding='ascii')).hexdigest()
+    def func(x): return [f() for _ in range(x)]
     unlikely = 0
     for _ in range(3):
         counts = Counter(func(int(STATS_N * 3)))
-        for checksum in counts: assert checksum in results['basic_insert_1'].keys()
+        for checksum in counts:
+            assert checksum in results['basic_insert_1'].keys()
         if stdev(counts.values()) > 35.115:
             _logger.debug(f"Standard deviation = {stdev(counts.values())}")
             unlikely += 1
 
-    if unlikely == 1: _logger.info("Suspicious: Random connection probability > 1 in 2149")
-    elif unlikely == 2: _logger.warn("Very suspicious: Random connection probability > 1 in 4618201")
-    elif unlikely == 3: _logger.error("Something is wrong: Random connection probability > 1 in 9924513949")
+    if unlikely == 1:
+        _logger.info("Suspicious: Random connection probability > 1 in 2149")
+    elif unlikely == 2:
+        _logger.warn("Very suspicious: Random connection probability > 1 in 4618201")
+    elif unlikely == 3:
+        _logger.error("Something is wrong: Random connection probability > 1 in 9924513949")
     assert unlikely < 3
 
 
@@ -217,21 +220,25 @@ def test_basic_insert_2_stats():
     So if 1000 inserts have a stdev > 35.115 three times in a row that is
     about a 1 in 10 billion shot.
     """
-    tgc = mGC(_graph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O':[['A', 0, 2]]}), sv=False)
+    tgc = mGC(_graph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O': [['A', 0, 2]]}), sv=False)
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    f = lambda: md5(bytearray(pformat(gc_insert(None, tgc, igc, 'A')[0]['graph']), encoding='ascii')).hexdigest()
-    func = lambda x: [f() for _ in range(x)]
+    def f(): return md5(bytearray(pformat(gc_insert(None, tgc, igc, 'A')[0]['graph']), encoding='ascii')).hexdigest()
+    def func(x): return [f() for _ in range(x)]
     unlikely = 0
     for _ in range(3):
         counts = Counter(func(STATS_N))
-        for checksum in counts: assert checksum in results['basic_insert_2'].keys()
+        for checksum in counts:
+            assert checksum in results['basic_insert_2'].keys()
         if stdev(counts.values()) > 35.115:
             _logger.debug(f"Standard deviation = {stdev(counts.values())}")
             unlikely += 1
 
-    if unlikely == 1: _logger.info("Suspicious: Random connection probability > 1 in 2149")
-    elif unlikely == 2: _logger.warn("Very suspicious: Random connection probability > 1 in 4618201")
-    elif unlikely == 3: _logger.error("Something is wrong: Random connection probability > 1 in 9924513949")
+    if unlikely == 1:
+        _logger.info("Suspicious: Random connection probability > 1 in 2149")
+    elif unlikely == 2:
+        _logger.warn("Very suspicious: Random connection probability > 1 in 4618201")
+    elif unlikely == 3:
+        _logger.error("Something is wrong: Random connection probability > 1 in 9924513949")
     assert unlikely < 3
 
 
@@ -240,21 +247,25 @@ def test_basic_insert_3_stats():
 
     Case #3 has 9 equally probable possiblities.
     """
-    tgc = mGC(_graph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O':[['A', 0, 2]]}), sv=False)
+    tgc = mGC(_graph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O': [['A', 0, 2]]}), sv=False)
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    f = lambda: md5(bytearray(pformat(gc_insert(None, tgc, igc, 'B')[0]['graph']), encoding='ascii')).hexdigest()
-    func = lambda x: [f() for _ in range(x)]
+    def f(): return md5(bytearray(pformat(gc_insert(None, tgc, igc, 'B')[0]['graph']), encoding='ascii')).hexdigest()
+    def func(x): return [f() for _ in range(x)]
     unlikely = 0
     for _ in range(3):
         counts = Counter(func(int(STATS_N * 2.25)))
-        for checksum in counts: assert checksum in results['basic_insert_3'].keys()
+        for checksum in counts:
+            assert checksum in results['basic_insert_3'].keys()
         if stdev(counts.values()) > 35.115:
             _logger.debug(f"Standard deviation = {stdev(counts.values())}")
             unlikely += 1
 
-    if unlikely == 1: _logger.info("Suspicious: Random connection probability > 1 in 2149")
-    elif unlikely == 2: _logger.warn("Very suspicious: Random connection probability > 1 in 4618201")
-    elif unlikely == 3: _logger.error("Something is wrong: Random connection probability > 1 in 9924513949")
+    if unlikely == 1:
+        _logger.info("Suspicious: Random connection probability > 1 in 2149")
+    elif unlikely == 2:
+        _logger.warn("Very suspicious: Random connection probability > 1 in 4618201")
+    elif unlikely == 3:
+        _logger.error("Something is wrong: Random connection probability > 1 in 9924513949")
     assert unlikely < 3
 
 
@@ -284,15 +295,20 @@ def test_basic_insert_4_stats():
         rgc_counts = Counter(rgc_codes)
         fgc_counts = Counter(fgc_codes)
 
-        for checksum in fgc_counts: assert checksum in results['basic_insert_4'].keys()
-        for checksum in rgc_counts: assert checksum in results['basic_insert_4'].keys()
+        for checksum in fgc_counts:
+            assert checksum in results['basic_insert_4'].keys()
+        for checksum in rgc_counts:
+            assert checksum in results['basic_insert_4'].keys()
         if stdev(fgc_counts.values()) > 35.115:
             _logger.debug(f"Standard deviation = {stdev(fgc_counts.values())}")
             unlikely += 1
 
-    if unlikely == 1: _logger.info("Suspicious: Random connection probability > 1 in 2149")
-    elif unlikely == 2: _logger.warn("Very suspicious: Random connection probability > 1 in 4618201")
-    elif unlikely == 3: _logger.error("Something is wrong: Random connection probability > 1 in 9924513949")
+    if unlikely == 1:
+        _logger.info("Suspicious: Random connection probability > 1 in 2149")
+    elif unlikely == 2:
+        _logger.warn("Very suspicious: Random connection probability > 1 in 4618201")
+    elif unlikely == 3:
+        _logger.error("Something is wrong: Random connection probability > 1 in 9924513949")
     assert unlikely < 3
 
 
@@ -322,15 +338,20 @@ def test_basic_insert_5_stats():
         rgc_counts = Counter(rgc_codes)
         fgc_counts = Counter(fgc_codes)
 
-        for checksum in fgc_counts: assert checksum in results['basic_insert_5'].keys()
-        for checksum in rgc_counts: assert checksum in results['basic_insert_5'].keys()
+        for checksum in fgc_counts:
+            assert checksum in results['basic_insert_5'].keys()
+        for checksum in rgc_counts:
+            assert checksum in results['basic_insert_5'].keys()
         if stdev(fgc_counts.values()) > 35.115:
             _logger.debug(f"Standard deviation = {stdev(fgc_counts.values())}")
             unlikely += 1
 
-    if unlikely == 1: _logger.info("Suspicious: Random connection probability > 1 in 2149")
-    elif unlikely == 2: _logger.warn("Very suspicious: Random connection probability > 1 in 4618201")
-    elif unlikely == 3: _logger.error("Something is wrong: Random connection probability > 1 in 9924513949")
+    if unlikely == 1:
+        _logger.info("Suspicious: Random connection probability > 1 in 2149")
+    elif unlikely == 2:
+        _logger.warn("Very suspicious: Random connection probability > 1 in 4618201")
+    elif unlikely == 3:
+        _logger.error("Something is wrong: Random connection probability > 1 in 9924513949")
     assert unlikely < 3
 
 
@@ -348,19 +369,23 @@ def test_basic_insert_6_stats():
     }
     tgc = mGC(_graph=gc_graph(graph), sv=False)
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    f = lambda: md5(bytearray(pformat(gc_insert(None, tgc, igc, 'O')[0]['graph']), encoding='ascii')).hexdigest()
-    func = lambda x: [f() for _ in range(x)]
+    def f(): return md5(bytearray(pformat(gc_insert(None, tgc, igc, 'O')[0]['graph']), encoding='ascii')).hexdigest()
+    def func(x): return [f() for _ in range(x)]
     unlikely = 0
     for _ in range(3):
         counts = Counter(func(STATS_N))
-        for checksum in counts: assert checksum in results['basic_insert_6'].keys()
+        for checksum in counts:
+            assert checksum in results['basic_insert_6'].keys()
         if stdev(counts.values()) > 35.115:
             _logger.debug(f"Standard deviation = {stdev(counts.values())}")
             unlikely += 1
 
-    if unlikely == 1: _logger.info("Suspicious: Random connection probability > 1 in 2149")
-    elif unlikely == 2: _logger.warn("Very suspicious: Random connection probability > 1 in 4618201")
-    elif unlikely == 3: _logger.error("Something is wrong: Random connection probability > 1 in 9924513949")
+    if unlikely == 1:
+        _logger.info("Suspicious: Random connection probability > 1 in 2149")
+    elif unlikely == 2:
+        _logger.warn("Very suspicious: Random connection probability > 1 in 4618201")
+    elif unlikely == 3:
+        _logger.error("Something is wrong: Random connection probability > 1 in 9924513949")
     assert unlikely < 3
 
 
@@ -376,7 +401,7 @@ def test_random_homogeneous_insertion():
     At the end there is a mush of GC's. They should be valid GC's & no steady state
     exception should occur.
     """
-    gc_list = [mGC(eGC(inputs=[2]*randint(1,8), outputs=[2]*randint(1,8)), sv=False) for _ in range(10)]
+    gc_list = [mGC(eGC(inputs=[2]*randint(1, 8), outputs=[2]*randint(1, 8)), sv=False) for _ in range(10)]
     for _ in range(1000):
         tgc = choice(gc_list)
         igc = choice(gc_list)

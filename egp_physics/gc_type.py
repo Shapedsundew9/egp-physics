@@ -16,11 +16,11 @@ Type instances are 'only' self consistent. For population consistency
 checks see the relevant collections e.g. genomic_library, gene_pool
 """
 
-from .generic_validator import SCHEMA, generic_validator, random_reference
-from .ep_type import vtype, asint
-from .gc_graph import gc_graph
 from copy import deepcopy
 
+from .ep_type import asint, vtype
+from .gc_graph import gc_graph
+from .generic_validator import SCHEMA, generic_validator, random_reference
 
 # GC types
 __GC = '_'
@@ -50,7 +50,7 @@ def _get_schema(t):
     -------
     (dict): A cerberus schema for GC type t
     """
-    schema =  {k: deepcopy(v) for k, v in filter(lambda x: t in x[1]['meta']['types'], SCHEMA.items())}
+    schema = {k: deepcopy(v) for k, v in filter(lambda x: t in x[1]['meta']['types'], SCHEMA.items())}
     for v in schema.values():
         v['required'] = True
         v['nullable'] = t in v['meta'].get('nullable_types', tuple())
@@ -60,7 +60,7 @@ def _get_schema(t):
             if 'default_setter' in v:
                 del v['default_setter']
         if t not in v['meta'].get('check_types', tuple()) and 'check_with' in v:
-                del v['check_with']
+            del v['check_with']
     return schema
 
 
@@ -126,7 +126,7 @@ class eGC(_GC):
         vt (vtype): The interpretation of the object. See vtype definition.
         sv (bool): Suppress validation. If True the eGC will not be validated on construction.
         """
-        #TODO: Consider lazy loading fields
+        # TODO: Consider lazy loading fields
         super().__init__(gc)
         graph_inputs, self['input_types'], self['inputs'] = interface_definition(inputs, vt)
         graph_outputs, self['output_types'], self['outputs'] = interface_definition(outputs, vt)

@@ -10,11 +10,10 @@ All other types values are > 0
 """
 
 
-from json import load
-from os.path import dirname, join
 from enum import IntEnum
+from json import load
 from logging import NullHandler, getLogger
-
+from os.path import dirname, join
 
 _logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
@@ -43,8 +42,8 @@ ep_type_lookup['instanciation'][UNKNOWN_EP_TYPE_VALUE] = [None] * 5
 class inst(IntEnum):
     """EP type 'instanciation' value list index."""
 
-    PACKAGE = 0 # (str) package name
-    VERSION = 1 # (str) package version number
+    PACKAGE = 0  # (str) package name
+    VERSION = 1  # (str) package version number
     MODULE = 2  # (str) module name
     NAME = 3    # (str) object name
     PARAM = 4   # (bool or None)
@@ -90,7 +89,11 @@ def import_str(ep_type_int):
 # If a type does not exist on this system remove it (all instances will be treated as INVALID)
 # NOTE: This would cause a circular dependency with gc_type if GC types were not filtered out
 # We can assume GC types will be defined for the contexts they are used.
-func = lambda x: x[1][inst.MODULE] is not None and x[1][inst.MODULE] != 'gc_type'
+def func(x):
+    """Filter function."""
+    return x[1][inst.MODULE] is not None and x[1][inst.MODULE] != 'gc_type'
+
+
 for ep_type_int, data in tuple(filter(func, ep_type_lookup['instanciation'].items())):
     try:
         exec(import_str(ep_type_int))
@@ -102,8 +105,13 @@ for ep_type_int, data in tuple(filter(func, ep_type_lookup['instanciation'].item
     else:
         _logger.info(import_str(ep_type_int))
 
+
+def func(x):
+    """Filter function."""
+    return x[inst.MODULE] is not None and x[inst.MODULE] == 'gc_type'
+
+
 _GC_TYPE_NAMES = []
-func = lambda x: x[inst.MODULE] is not None and x[inst.MODULE] == 'gc_type'
 for i in tuple(filter(func, ep_type_lookup['instanciation'].values())):
     _GC_TYPE_NAMES.append(f'{i[inst.MODULE]}_{i[inst.NAME]}')
 
@@ -136,7 +144,7 @@ def validate(obj, vt=vtype.EP_TYPE_INT):
         try:
             name = fully_qualified_name(eval(obj))
         except NameError:
-            #If it looks like a GC type instanciation assume it is OK.
+            # If it looks like a GC type instanciation assume it is OK.
             return any([x + '(' in obj for x in _GC_TYPE_NAMES])
         return name in EP_TYPE_NAMES
     if vt == vtype.EP_TYPE_STR:
@@ -168,7 +176,7 @@ def asint(obj, vt=vtype.EP_TYPE_STR):
         try:
             ep_type_name = fully_qualified_name(eval(obj))
         except NameError:
-            #If it looks like a GC type instanciation assume it is OK.
+            # If it looks like a GC type instanciation assume it is OK.
             ep_type_name = INVALID_EP_TYPE_NAME
             for x in _GC_TYPE_NAMES:
                 if x + '(' in obj:
@@ -207,7 +215,7 @@ def asstr(obj, vt=vtype.EP_TYPE_INT):
         try:
             ep_type_name = fully_qualified_name(eval(obj))
         except NameError:
-            #If it looks like a GC type instanciation assume it is OK.
+            # If it looks like a GC type instanciation assume it is OK.
             for x in _GC_TYPE_NAMES:
                 if x + '(' in obj:
                     return 'egp_physics.' + x

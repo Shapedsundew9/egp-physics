@@ -17,8 +17,8 @@ from json import load
 from os.path import dirname, join
 from pprint import pformat
 from random import choice, getrandbits
-from .utils.base_validator import BaseValidator
 
+from .utils.base_validator import BaseValidator
 
 with open(join(dirname(__file__), "formats/generic_gc_format.json"), "r") as file_ptr:
     SCHEMA = load(file_ptr)
@@ -58,6 +58,7 @@ def define_signature(gc):
 
 
 class generic_validator(BaseValidator):
+    """Generic validator of _GC classes."""
 
     # TODO: Make errors ValidationError types for full disclosure
     # https://docs.python-cerberus.org/en/stable/customize.html#validator-error
@@ -98,15 +99,8 @@ class generic_validator(BaseValidator):
         return random_reference()
 
     def _normalize_default_setter_set_signature(self, document):
-        """This needs to be very specific and stand the test of time."""
-        gc = self.document
-        string = pformat(gc['graph'], indent=0, sort_dicts=True, width=65535, compact=True) + str(gc['gca']) + str(gc['gcb'])
-        if "generation" in gc and gc["generation"] == 0:
-            if "meta_data" in gc and "function" in gc["meta_data"]:
-                string += gc["meta_data"]["function"]["python3"]["0"]["inline"]
-                if 'code' in gc["meta_data"]["function"]["python3"]["0"]:
-                    string += gc["meta_data"]["function"]["python3"]["0"]["code"]
-        return sha256(string.encode()).digest()
+        """Define the signature of a genetic code."""
+        return define_signature(self.document)
 
     def _normalize_default_setter_set_input_types(self, document):
         # Gather all the input endpoint types. Reduce in a set then order the list.
@@ -125,12 +119,12 @@ class generic_validator(BaseValidator):
         inputs = []
         for row in document["graph"].values():
             inputs.extend((ep for ep in filter(lambda x: x[0] == 'I', row)))
-        return bytes((type_list.index(ep[2]) for ep in sorted(inputs, key=lambda x:x[1])))
+        return bytes((type_list.index(ep[2]) for ep in sorted(inputs, key=lambda x: x[1])))
 
     def _normalize_default_setter_set_output_indices(self, document):
         # Get the type list then find all the inputs in order & look them up.
         type_list = self._normalize_default_setter_set_output_types(document)
-        bytea = (type_list.index(ep[2]) for ep in sorted(document["graph"].get("O", tuple()), key=lambda x:x[1]))
+        bytea = (type_list.index(ep[2]) for ep in sorted(document["graph"].get("O", tuple()), key=lambda x: x[1]))
         return bytes(bytea)
 
     def _normalize_default_setter_set_num_inputs(self, document):
