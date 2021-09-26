@@ -36,7 +36,7 @@
         },
         "type": "list"
     },
-    "_ancestor_a": {
+    "ancestor_a_ref": {
         "default": null,
         "max": 9223372036854775807,
         "meta": {
@@ -50,7 +50,7 @@
         "nullable": true,
         "type": "integer"
     },
-    "_ancestor_b": {
+    "ancestor_b_ref": {
         "default": null,
         "max": 9223372036854775807,
         "meta": {
@@ -138,7 +138,7 @@
         },
         "type": "list"
     },
-    "_gca": {
+    "gca_ref": {
         "default": null,
         "max": 9223372036854775807,
         "meta": {
@@ -152,7 +152,43 @@
         "nullable": true,
         "type": "integer"
     },
-    "_gcb": {
+    "pgc_ref": {
+        "default": null,
+        "max": 9223372036854775807,
+        "meta": {
+            "types": "g",
+            "default_types": "g",
+            "description": "A unique internal reference to the PGC that created this GC.",
+            "nullable_types": "g",
+            "settable_types": ""
+        },
+        "min": -9223372036854775808,
+        "nullable": true,
+        "type": "integer"
+    },
+    "modified": {
+        "default": false,
+        "meta": {
+            "types": "g",
+            "default_types": "g",
+            "description": "True if this GC ref has been modified since loading from the gene pool.",
+            "nullable_types": "",
+            "settable_types": ""
+        },
+        "type": "boolean"
+    },
+    "individual": {
+        "default": false,
+        "meta": {
+            "types": "g",
+            "default_types": "g",
+            "description": "True if this GC is an individual in the population.",
+            "nullable_types": "",
+            "settable_types": ""
+        },
+        "type": "boolean"
+    },
+    "gcb_ref": {
         "default": null,
         "max": 9223372036854775807,
         "meta": {
@@ -166,7 +202,7 @@
         "nullable": true,
         "type": "integer"
     },
-    "_graph": {
+    "igraph": {
         "meta": {
             "types": "em",
             "default_types": "",
@@ -175,7 +211,7 @@
             "settable_types": ""
         }
     },
-    "_ref": {
+    "ref": {
         "max": 9223372036854775807,
         "meta": {
             "types": "em",

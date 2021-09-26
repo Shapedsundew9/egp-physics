@@ -16,7 +16,7 @@ Type instances are 'only' self consistent. For population consistency
 checks see the relevant collections e.g. genomic_library, gene_pool
 """
 
-from copy import deepcopy
+from copy import copy, deepcopy
 
 from .ep_type import asint, vtype
 from .gc_graph import gc_graph
@@ -29,6 +29,7 @@ _PGC = 'p'
 _AGC = 'a'
 _XGC = 'x'
 _MGC = 'm'
+_GGC = 'g'
 
 
 # GitHub Markdown Emoji's
@@ -83,7 +84,7 @@ def interface_definition(xputs, vt=vtype.TYPE_OBJECT):
     """
     xput_eps = tuple((asint(x, vt) for x in xputs))
     xput_types = sorted(set(xput_eps))
-    return xput_eps, xput_types, [xput_types.index(x) for x in xput_eps]
+    return xput_eps, xput_types, bytes([xput_types.index(x) for x in xput_eps])
 
 
 class _GC(dict):
@@ -97,7 +98,7 @@ class _GC(dict):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.setdefault('_ref', random_reference())
+        self.setdefault('ref', random_reference())
 
     def validate(self):
         """Validate all required key:value pairs are correct."""
@@ -130,13 +131,13 @@ class eGC(_GC):
         super().__init__(gc)
         graph_inputs, self['input_types'], self['inputs'] = interface_definition(inputs, vt)
         graph_outputs, self['output_types'], self['outputs'] = interface_definition(outputs, vt)
-        self.setdefault('_gca', None)
-        self.setdefault('_gcb', None)
-        if '_graph' not in self:
-            _graph = gc_graph()
-            _graph.add_inputs(graph_inputs)
-            _graph.add_outputs(graph_outputs)
-            self['_graph'] = _graph
+        self.setdefault('gca_ref', None)
+        self.setdefault('gcb_ref', None)
+        if 'igraph' not in self:
+            igraph = gc_graph()
+            igraph.add_inputs(graph_inputs)
+            igraph.add_outputs(graph_outputs)
+            self['igraph'] = igraph
         if not sv:
             self.validate()
 
@@ -150,25 +151,65 @@ class mGC(_GC):
 
     validator = generic_validator(_get_schema(_MGC), allow_unknown=True)
 
-    def __init__(self, gc={}, _graph=gc_graph(), _gca=None, _gcb=None, sv=True):
+    def __init__(self, gc={}, igraph=gc_graph(), gca_ref=None, gcb_ref=None, sv=True):
         """Construct.
+
+        gc combined with igraph must be in a steady state.
+        if gc['igraph] exists igraph will be ignored.
 
         Args
         ----
         gc (a _GC dervived object): GC to ensure is mGC compliant.
-        _gca (int or None): gca reference.
-        _gcb (int or None): gcb reference.
-        sv (bool): Suppress validation. If True the eGC will not be validated on construction.
+        gca_ref (int or None): gca reference.
+        gcb_ref (int or None): gcb reference.
+        sv (bool): Suppress validation. If True the mGC will not be validated on construction.
         """
         super().__init__(gc)
-        self.setdefault('_graph', _graph)
-        self.setdefault('_gca', _gca)
-        self.setdefault('_gcb', _gcb)
+        self.setdefault('igraph', igraph)
+        self.setdefault('gca_ref', gca_ref)
+        self.setdefault('gcb_ref', gcb_ref)
         if 'inputs' not in self:
-            inputs = self['_graph'].input_if()
-            outputs = self['_graph'].output_if()
+            inputs = self['igraph'].input_if()
+            outputs = self['igraph'].output_if()
             _, self['input_types'], self['inputs'] = interface_definition(inputs, vtype.EP_TYPE_INT)
             _, self['output_types'], self['outputs'] = interface_definition(outputs, vtype.EP_TYPE_INT)
+        if not sv:
+            self.validate()
+
+
+class gGC(_GC):
+    """Gene Pool GC type.
+
+    Gene pool GC types hold a lot of transient data.
+    """
+
+    validator = generic_validator(_get_schema(_GGC), allow_unknown=True)
+    higher_layer_cols = tuple((col for col in filter(lambda x: x[0] == '_', validator.schema.keys())))
+
+    def __init__(self, gc={}, individual=False, modified=False, sv=True):
+        """Construct.
+
+        Args
+        ----
+        gc (a _GC dervived object): GC to ensure is eGC compliant.
+        sv (bool): Suppress validation. If True the eGC will not be validated on construction.
+        """
+        # TODO: Consider lazy loading fields
+        super().__init__(gc)
+        self.setdefault('individual', individual)
+        self.setdefault('modified', modified)
+        self.setdefault('pgc_ref', None)
+        self.setdefault('ancestor_a_ref', None)
+        self.setdefault('ancestor_b_ref', None)
+        self.setdefault('gca_ref', None)
+        self.setdefault('gcb_ref', None)
+        self.setdefault('igraph', gc_graph(self['graph']))
+        for col in filter(lambda x: x[1:] in gc.keys(), gGC.higher_layer_cols):
+            gc[col] = copy(gc[col[1:]])
+
+
+
+
         if not sv:
             self.validate()
 
