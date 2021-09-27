@@ -16,29 +16,19 @@ _LOG_DEBUG = _logger.isEnabledFor(DEBUG)
 
 
 # Steady state exception filters.
-_MATCH_TYPE_0_SQL = ('WHERE {input_types}={itypes} AND {inputs}={iidx} '
-                     'AND {output_types}={otypes} AND {outputs}={oidx} '
-                     'AND {exclude_column} NOT IN {exclusions} ORDER BY RANDOM() LIMIT 1')
-_MATCH_TYPE_1_SQL = ('WHERE {input_types}={itypes} '
-                     'AND {output_types}={otypes} AND {outputs}={oidx} '
-                     'AND {exclude_column} NOT IN {exclusions} ORDER BY RANDOM() LIMIT 1')
-_MATCH_TYPE_2_SQL = ('WHERE {input_types}={itypes} AND {inputs}={iidx} '
-                     'AND {output_types}={otypes} '
-                     'AND {exclude_column} NOT IN {exclusions} ORDER BY RANDOM() LIMIT 1')
-_MATCH_TYPE_3_SQL = ('WHERE {input_types}={itypes} AND {output_types}={otypes}'
-                     'AND {exclude_column} NOT IN {exclusions} ORDER BY RANDOM() LIMIT 1')
-_MATCH_TYPE_4_SQL = ('WHERE {input_types}<@{itypes} AND {output_types}={otypes}'
-                     'AND {exclude_column} NOT IN {exclusions} ORDER BY RANDOM() LIMIT 1')
-_MATCH_TYPE_5_SQL = ('WHERE {input_types}<@{itypes} AND {output_types}@>{otypes}'
-                     'AND {exclude_column} NOT IN {exclusions} ORDER BY RANDOM() LIMIT 1')
-_MATCH_TYPE_6_SQL = ('WHERE {input_types}<@{itypes} AND {output_types}&&{otypes}'
-                     'AND {exclude_column} NOT IN {exclusions} ORDER BY RANDOM() LIMIT 1')
-_MATCH_TYPE_7_SQL = ('WHERE {input_types}&&{itypes} AND {output_types}&&{otypes}'
-                     'AND {exclude_column} NOT IN {exclusions} ORDER BY RANDOM() LIMIT 1')
-_MATCH_TYPE_8_SQL = ('WHERE {output_types}&&{otypes} '
-                     'AND {exclude_column} NOT IN {exclusions} ORDER BY RANDOM() LIMIT 1')
-_MATCH_TYPE_9_SQL = ('WHERE {input_types}&&{itypes} '
-                     'AND {exclude_column} NOT IN {exclusions} ORDER BY RANDOM() LIMIT 1')
+_EXCLUSION_LIMIT =  ' AND ({exclude_column} NOT IN {exclusions}) IS NOT FALSE ORDER BY RANDOM() LIMIT 1'
+
+_MATCH_TYPE_0_SQL = ('WHERE {input_types} = {itypes} AND {inputs} = {iidx} AND {output_types} = {otypes} AND {outputs} = {oidx}'
+                     + _EXCLUSION_LIMIT)
+_MATCH_TYPE_1_SQL = 'WHERE {input_types} = {itypes} AND {output_types} = {otypes} AND {outputs} = {oidx}' + _EXCLUSION_LIMIT
+_MATCH_TYPE_2_SQL = 'WHERE {input_types} = {itypes} AND {inputs} = {iidx} AND {output_types} = {otypes}' + _EXCLUSION_LIMIT
+_MATCH_TYPE_3_SQL = 'WHERE {input_types} = {itypes} AND {output_types} = {otypes}' + _EXCLUSION_LIMIT
+_MATCH_TYPE_4_SQL = 'WHERE {input_types} <@ {itypes} AND {output_types} = {otypes}' + _EXCLUSION_LIMIT
+_MATCH_TYPE_5_SQL = 'WHERE {input_types} <@ {itypes} AND {output_types} @> {otypes}' + _EXCLUSION_LIMIT
+_MATCH_TYPE_6_SQL = 'WHERE {input_types} <@ {itypes} AND {output_types} && {otypes}' + _EXCLUSION_LIMIT
+_MATCH_TYPE_7_SQL = 'WHERE {input_types} && {itypes} AND {output_types} && {otypes}' + _EXCLUSION_LIMIT
+_MATCH_TYPE_8_SQL = 'WHERE {output_types} && {otypes} ' + _EXCLUSION_LIMIT
+_MATCH_TYPE_9_SQL = 'WHERE {input_types} && {itypes} ' + _EXCLUSION_LIMIT
 _MATCH_TYPES_SQL = (
     _MATCH_TYPE_0_SQL,
     _MATCH_TYPE_1_SQL,
@@ -55,8 +45,8 @@ _NUM_MATCH_TYPES = len(_MATCH_TYPES_SQL)
 
 
 # Initial GC query
-_INITIAL_GC_SQL = ('WHERE {input_types}={itypes} AND {inputs}={iidx} '
-                   'AND {output_types}={otypes} AND {outputs}={oidx} '
+_INITIAL_GC_SQL = ('WHERE {input_types} = {itypes} AND {inputs} = {iidx} '
+                   'AND {output_types} = {otypes} AND {outputs} = {oidx} '
                    'AND {exclude_column} NOT IN {exclusions} ORDER BY RANDOM() LIMIT {limit}')
 
 
@@ -628,12 +618,12 @@ def proximity_select(gms, xputs):
     (int, dict): (match_type, agc) or None
     """
     match_type = randint(0, _NUM_MATCH_TYPES - 1)
-    agc = gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs, container='pkdict')
-    while not agc and match_type < _NUM_MATCH_TYPES:
+    agc = gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs)
+    while not agc and match_type < _NUM_MATCH_TYPES - 1:
         if _LOG_DEBUG:
             _logger.debug(f'Proximity selection match_type {match_type} found no candidates.')
         match_type += 1
-        agc = gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs, container='pkdict')
+        agc = gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs)
     return None if not agc else agc[0]
 
 

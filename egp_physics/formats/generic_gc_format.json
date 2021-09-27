@@ -211,6 +211,18 @@
             "settable_types": ""
         }
     },
+    "interface": {
+        "max": 9223372036854775807,
+        "meta": {
+            "types": "g",
+            "default_types": "g",
+            "description": "The hash of the inputs, outputs, input_types and output_types if this gGC is an individual.",
+            "nullable_types": "g",
+            "settable_types": ""
+        },
+        "min": -9223372036854775808,
+        "type": "integer"
+    },
     "ref": {
         "max": 9223372036854775807,
         "meta": {
