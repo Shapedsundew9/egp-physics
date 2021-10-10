@@ -17,6 +17,7 @@ checks see the relevant collections e.g. genomic_library, gene_pool
 """
 
 from copy import copy, deepcopy
+from hashlib import blake2b
 
 from .ep_type import asint, vtype
 from .gc_graph import gc_graph
@@ -87,6 +88,27 @@ def interface_definition(xputs, vt=vtype.TYPE_OBJECT):
     return xput_eps, xput_types, bytes([xput_types.index(x) for x in xput_eps])
 
 
+def interface_hash(input_eps, output_eps):
+    """Create a 64-bit hash of the population interface definition.
+
+    Args
+    ----
+    input_eps (iterable(int)): Iterable of input EP types.
+    output_eps (iterable(int)): Iterable of output EP types.
+
+    Returns
+    -------
+    (int): 64 bit hash as a signed 64 bit int.
+    """
+    h = blake2b(digest_size=8)
+    for i in input_eps:
+        h.update(i.to_bytes(2, 'little'))
+    for o in output_eps:
+        h.update(o.to_bytes(2, 'little'))
+    a = int.from_bytes(h.digest(), 'little')
+    return (0x7FFFFFFFFFFFFFFF & a) - (a & (1 << 63))
+
+
 class _GC(dict):
     """Abstract base class for genetic code (GC) types.
 
@@ -98,7 +120,18 @@ class _GC(dict):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.setdefault('ref', random_reference())
+        if 'ref' not in self:
+            self['ref'] = self._ref_from_sig('signature', random_ref=True)
+
+    def _ref_from_sig(self, s, random_ref=False):
+        """Make a reference from the first 8 bytes of the signature if it exists."""
+        if s not in self:
+            if random_ref:
+                return random_reference()
+            return None
+        else:
+            a = int.from_bytes(self['signature'][:8], 'little')
+            return (0x7FFFFFFFFFFFFFFF & a) - (a & (1 << 63))
 
     def validate(self):
         """Validate all required key:value pairs are correct."""
@@ -131,8 +164,9 @@ class eGC(_GC):
         super().__init__(gc)
         graph_inputs, self['input_types'], self['inputs'] = interface_definition(inputs, vt)
         graph_outputs, self['output_types'], self['outputs'] = interface_definition(outputs, vt)
-        self.setdefault('gca_ref', None)
-        self.setdefault('gcb_ref', None)
+        self['interface'] = interface_hash(graph_inputs, graph_outputs)
+        self.setdefault('gca_ref', self._ref_from_sig('gca'))
+        self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
         if 'igraph' not in self:
             igraph = gc_graph()
             igraph.add_inputs(graph_inputs)
@@ -151,7 +185,7 @@ class mGC(_GC):
 
     validator = generic_validator(_get_schema(_MGC), allow_unknown=True)
 
-    def __init__(self, gc={}, igraph=gc_graph(), gca_ref=None, gcb_ref=None, sv=True):
+    def __init__(self, gc={}, igraph=gc_graph(), sv=True):
         """Construct.
 
         gc combined with igraph must be in a steady state.
@@ -166,8 +200,8 @@ class mGC(_GC):
         """
         super().__init__(gc)
         self.setdefault('igraph', igraph)
-        self.setdefault('gca_ref', gca_ref)
-        self.setdefault('gcb_ref', gcb_ref)
+        self.setdefault('gca_ref', self._ref_from_sig('gca'))
+        self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
         if 'inputs' not in self:
             inputs = self['igraph'].input_if()
             outputs = self['igraph'].output_if()
@@ -197,13 +231,13 @@ class gGC(_GC):
         # TODO: Consider lazy loading fields
         super().__init__(gc)
         self.setdefault('modified', modified)
-        self.setdefault('pgc_ref', None)
-        self.setdefault('ancestor_a_ref', None)
-        self.setdefault('ancestor_b_ref', None)
-        self.setdefault('gca_ref', None)
-        self.setdefault('gcb_ref', None)
+        self.setdefault('pgc_ref', self._ref_from_sig('pgc'))
+        self.setdefault('ancestor_a_ref', self._ref_from_sig('ancestor_b'))
+        self.setdefault('ancestor_b_ref', self._ref_from_sig('ancestor_a'))
+        self.setdefault('gca_ref', self._ref_from_sig('gca'))
+        self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
         self.setdefault('igraph', gc_graph(self['graph']))
-        self['interface'] = interface
+        self['interface'] = interface_hash(self['igraph'].input_if(), self['igraph'].output_if())
         for col in filter(lambda x: x[1:] in gc.keys(), gGC.higher_layer_cols):
             gc[col] = copy(gc[col[1:]])
         if not sv:

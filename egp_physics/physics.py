@@ -16,7 +16,7 @@ _LOG_DEBUG = _logger.isEnabledFor(DEBUG)
 
 
 # Steady state exception filters.
-_EXCLUSION_LIMIT =  ' AND ({exclude_column} NOT IN {exclusions}) IS NOT FALSE ORDER BY RANDOM() LIMIT 1'
+_EXCLUSION_LIMIT =  ' AND NOT ({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT 1'
 
 _MATCH_TYPE_0_SQL = ('WHERE {input_types} = {itypes} AND {inputs} = {iidx} AND {output_types} = {otypes} AND {outputs} = {oidx}'
                      + _EXCLUSION_LIMIT)
@@ -47,7 +47,7 @@ _NUM_MATCH_TYPES = len(_MATCH_TYPES_SQL)
 # Initial GC query
 _INITIAL_GC_SQL = ('WHERE {input_types} = {itypes} AND {inputs} = {iidx} '
                    'AND {output_types} = {otypes} AND {outputs} = {oidx} '
-                   'AND {exclude_column} NOT IN {exclusions} ORDER BY RANDOM() LIMIT {limit}')
+                   'AND NOT ({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT {limit}')
 
 
 def _copy_row(igc, rows, ep_type=None):
@@ -618,12 +618,12 @@ def proximity_select(gms, xputs):
     (int, dict): (match_type, agc) or None
     """
     match_type = randint(0, _NUM_MATCH_TYPES - 1)
-    agc = gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs)
+    agc = tuple(gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs))
     while not agc and match_type < _NUM_MATCH_TYPES - 1:
         if _LOG_DEBUG:
             _logger.debug(f'Proximity selection match_type {match_type} found no candidates.')
         match_type += 1
-        agc = gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs)
+        agc = tuple(gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs))
     return None if not agc else agc[0]
 
 
@@ -665,7 +665,7 @@ def steady_state_exception(gms, fgc):
 
     xputs = {
         'exclude_column': 'signature',
-        'exclusions': tuple()
+        'exclusions': list()
     }
     _, xputs['itypes'], xputs['iidx'] = interface_definition(inputs, vtype.EP_TYPE_INT)
     _, xputs['otypes'], xputs['oidx'] = interface_definition(outputs, vtype.EP_TYPE_INT)
