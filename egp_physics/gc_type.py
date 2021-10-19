@@ -102,10 +102,10 @@ def interface_hash(input_eps, output_eps):
     """
     h = blake2b(digest_size=8)
     for i in input_eps:
-        h.update(i.to_bytes(2, 'little'))
+        h.update(i.to_bytes(2, 'big'))
     for o in output_eps:
-        h.update(o.to_bytes(2, 'little'))
-    a = int.from_bytes(h.digest(), 'little')
+        h.update(o.to_bytes(2, 'big'))
+    a = int.from_bytes(h.digest(), 'big')
     return (0x7FFFFFFFFFFFFFFF & a) - (a & (1 << 63))
 
 
@@ -129,9 +129,10 @@ class _GC(dict):
             if random_ref:
                 return random_reference()
             return None
-        else:
-            a = int.from_bytes(self['signature'][:8], 'little')
+        elif self[s] is not None:
+            a = int.from_bytes(self[s][:8], 'little')
             return (0x7FFFFFFFFFFFFFFF & a) - (a & (1 << 63))
+        return None
 
     def validate(self):
         """Validate all required key:value pairs are correct."""
@@ -149,7 +150,7 @@ class eGC(_GC):
 
     validator = generic_validator(_get_schema(_EGC), allow_unknown=True)
 
-    def __init__(self, gc={}, inputs=tuple(), outputs=tuple(), vt=vtype.OBJECT, sv=True):
+    def __init__(self, gc={}, inputs=None, outputs=None, vt=vtype.OBJECT, sv=True):
         """Construct.
 
         Args
@@ -162,16 +163,24 @@ class eGC(_GC):
         """
         # TODO: Consider lazy loading fields
         super().__init__(gc)
-        graph_inputs, self['input_types'], self['inputs'] = interface_definition(inputs, vt)
-        graph_outputs, self['output_types'], self['outputs'] = interface_definition(outputs, vt)
-        self['interface'] = interface_hash(graph_inputs, graph_outputs)
+        if inputs is not None:
+            graph_inputs, self['input_types'], self['inputs'] = interface_definition(inputs, vt)
+        if outputs is not None:
+            graph_outputs, self['output_types'], self['outputs'] = interface_definition(outputs, vt)
         self.setdefault('gca_ref', self._ref_from_sig('gca'))
         self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
+        self['modified'] = True
         if 'igraph' not in self:
-            igraph = gc_graph()
-            igraph.add_inputs(graph_inputs)
-            igraph.add_outputs(graph_outputs)
+            if 'graph' in self:
+                igraph = gc_graph(self['graph'])
+                graph_inputs = igraph.input_if()
+                graph_outputs = igraph.output_if()
+            else:
+                igraph = gc_graph()
+                igraph.add_inputs(graph_inputs)
+                igraph.add_outputs(graph_outputs)
             self['igraph'] = igraph
+        self['interface'] = interface_hash(graph_inputs, graph_outputs)
         if not sv:
             self.validate()
 
@@ -237,6 +246,7 @@ class gGC(_GC):
         self.setdefault('gca_ref', self._ref_from_sig('gca'))
         self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
         self.setdefault('igraph', gc_graph(self['graph']))
+        self.setdefault('exec', None)
         self['interface'] = interface_hash(self['igraph'].input_if(), self['igraph'].output_if())
         for col in filter(lambda x: x[1:] in gc.keys(), gGC.higher_layer_cols):
             gc[col] = copy(gc[col[1:]])

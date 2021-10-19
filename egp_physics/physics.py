@@ -411,6 +411,7 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
     if insert_gc is None:
         rgc_graph = target_gc['igraph']
         if rgc_graph.is_stable():
+            _logger.debug('Target GC is stable.')
             return [target_gc]
         rgc = {'graph': rgc_graph.app_graph, 'igraph': rgc_graph, 'ref': random_reference()}
         work_stack = [steady_state_exception(gms, rgc)]
@@ -424,6 +425,7 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
         fgc = {}
         rgc = {}
         target_gc, insert_gc, above_row = work_stack.pop(0)
+        fgc_list.append(insert_gc)
         if _LOG_DEBUG:
             _logger.debug("Work: Target={}, Insert={}, Above Row={}".format(target_gc['ref'], insert_gc['ref'], above_row))
         # TODO: Get rid of None (make it None)
@@ -624,7 +626,11 @@ def proximity_select(gms, xputs):
             _logger.debug(f'Proximity selection match_type {match_type} found no candidates.')
         match_type += 1
         agc = tuple(gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs))
-    return None if not agc else agc[0]
+    if agc:
+        _logger.debug(f'Proximity selection match_type {match_type} found a candidate.')
+        _logger.debug(f'Candidate:\n{agc[0]}')
+        return agc[0]
+    return None
 
 
 def steady_state_exception(gms, fgc):
@@ -648,6 +654,7 @@ def steady_state_exception(gms, fgc):
     -------
     (fGC, fGC, str): (target_gc, insert_gc, 'A', 'B' or 'O') or None
     """
+    _logger.debug('Steady state exception thrown.')
     fgc_graph = fgc['igraph']
 
     # Find unconnected destination endpoints. Determine highest row & endpoint types.

@@ -839,6 +839,7 @@ class gc_graph():
             5. self.app_graph is regenerated
             6. Check a valid steady state has been achieved
         """
+        _logger.debug("Nomralising...")
         # 1 Connect all destinations to existing sources if possible
         self.connect_all()
 
