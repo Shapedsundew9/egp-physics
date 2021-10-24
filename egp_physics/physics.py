@@ -406,26 +406,35 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
     if above_row is None:
         above_row = 'ABO'[randint(0, 2)]
 
+    rgc_graph = target_gc['igraph']
+    rgc = {
+        'graph': rgc_graph.app_graph,
+        'igraph': rgc_graph,
+        'ref': random_reference(),
+        'gca_ref': target_gc['gca_ref'],
+        'gcb_ref': target_gc['gcb_ref']
+    }
+
     # If there is no gc_insert return the target if it is stable or
     # throw a steady state exception.
     if insert_gc is None:
-        rgc_graph = target_gc['igraph']
         if rgc_graph.is_stable():
-            _logger.debug('Target GC is stable.')
+            if _LOG_DEBUG: _logger.debug('Target GC is stable & nothing to insert.')
             return [target_gc]
-        rgc = {'graph': rgc_graph.app_graph, 'igraph': rgc_graph, 'ref': random_reference()}
+        if _LOG_DEBUG: _logger.debug('Target GC is unstable & nothing to insert.')
         work_stack = [steady_state_exception(gms, rgc)]
     else:
-        work_stack = [(target_gc, insert_gc, above_row)]
+        if _LOG_DEBUG: _logger.debug('Inserting into Target GC.')
+        work_stack = [(rgc, insert_gc, above_row)]
 
-    fgc_list = []
+    fgc_dict = {}
+    new_tgc = None
     while work_stack and work_stack[0] is not None:
         if _LOG_DEBUG:
             _logger.debug("Work stack depth: {}".format(len(work_stack)))
         fgc = {}
         rgc = {}
         target_gc, insert_gc, above_row = work_stack.pop(0)
-        fgc_list.append(insert_gc)
         if _LOG_DEBUG:
             _logger.debug("Work: Target={}, Insert={}, Above Row={}".format(target_gc['ref'], insert_gc['ref'], above_row))
         # TODO: Get rid of None (make it None)
@@ -447,6 +456,8 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
         rgc['igraph'] = rgc_graph
 
         # Insert into the GC
+        # The insert_gc is always referenced in the tree of the final rgc
+        fgc_dict[insert_gc['ref']] = insert_gc
         if not tgc_graph.has_a():  # Case 1
             if _LOG_DEBUG:
                 _logger.debug("Case 1")
@@ -457,11 +468,19 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
                 if _LOG_DEBUG:
                     _logger.debug("Case 2")
                 rgc['gca_ref'] = insert_gc['ref']
-                rgc['gcb_ref'] = target_gc['gca_ref'] if target_gc['gca_ref'] is not None else target_gc['ref']
+                if target_gc['gca_ref'] is not None:
+                    rgc['gcb_ref'] = target_gc['gca_ref']
+                else:
+                    rgc['gcb_ref'] = target_gc['ref']
+                    fgc_dict[target_gc['ref']] = target_gc
             else:  # Case 3
                 if _LOG_DEBUG:
                     _logger.debug("Case 3")
-                rgc['gca_ref'] = target_gc['gca_ref'] if target_gc['gca_ref'] is not None else target_gc['ref']
+                if target_gc['gca_ref'] is not None:
+                    rgc['gca_ref'] = target_gc['gca_ref']
+                else:
+                    rgc['gca_ref'] = target_gc['ref']
+                    fgc_dict[target_gc['ref']] = target_gc
                 rgc['gcb_ref'] = insert_gc['ref']
         else:  # Has row A & row B
             if above_row == 'A':  # Case 4
@@ -485,23 +504,38 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
                     _logger.debug("Case 6")
                 rgc['gca_ref'] = target_gc['ref']
                 rgc['gcb_ref'] = insert_gc['ref']
-        rgc['ref'] = random_reference()
+                fgc_dict[target_gc['ref']] = target_gc
+        rgc['ref'] = target_gc['ref']
 
         # Check we have valid graphs
+        # FGC is added to the work stack ahead of RGC
+        # which ensures the new TGC is correctly set
+        # (i.e. does not end up being the RGC of an unstable FGC)
         if fgc_graph:
             if not fgc_steady:
+                if _LOG_DEBUG: _logger.debug(f"FGC ref {fgc['ref']} is unstable.")
                 work_stack.insert(0, steady_state_exception(gms, fgc))
             else:
-                fgc_list.append(mGC(gc=fgc))
+                if _LOG_DEBUG: _logger.debug(f"FGC ref {fgc['ref']} added to fgc_dict.")
+                fgc_dict[fgc['ref']] = mGC(gc=fgc)
 
         if not rgc_steady:
+            if _LOG_DEBUG: _logger.debug(f"RGC ref {rgc['ref']} is unstable.")
             work_stack.insert(0, steady_state_exception(gms, rgc))
         else:
-            fgc_list.insert(0, mGC(gc=rgc))
+            if new_tgc is None:
+                if _LOG_DEBUG: _logger.debug(f"Resultant GC defined {rgc['ref']}:\n {pformat(rgc)}")
+                new_tgc = rgc
+            else:
+                if _LOG_DEBUG: _logger.debug(f"RGC ref {rgc['ref']} added to fgc_dict.")
+                fgc_dict[rgc['ref']] = mGC(gc=rgc)
+
+        if _LOG_DEBUG:
+            _logger.debug("fgc_dict: {}".format(list(fgc_dict.keys())))
 
     if _LOG_DEBUG:
-        _logger.debug("fgc_list: {}".format(pformat(fgc_list)))
-    return None if work_stack else fgc_list
+        _logger.debug("fgc_dict details:\n{}".format(pformat(fgc_dict)))
+    return (None, None) if work_stack else (new_tgc, fgc_dict)
 
 
 # stablise() is more understanable context than gc_insert() in some use cases.
@@ -550,7 +584,7 @@ def gc_remove(gms, tgc, abpo):
         rgc_graph.move_refs('P', 'O')
     rgc['ref'] = random_reference()
     if not rgc_graph.normalize():
-        rgc = gc_insert(gms, *steady_state_exception(rgc, gms))[0]
+        rgc, _ = gc_insert(gms, *steady_state_exception(rgc, gms))
     return rgc
 
 
@@ -627,8 +661,9 @@ def proximity_select(gms, xputs):
         match_type += 1
         agc = tuple(gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs))
     if agc:
-        _logger.debug(f'Proximity selection match_type {match_type} found a candidate.')
-        _logger.debug(f'Candidate:\n{agc[0]}')
+        if _LOG_DEBUG:
+            _logger.debug(f'Proximity selection match_type {match_type} found a candidate.')
+            _logger.debug(f"Candidate: {agc[0]}")
         return agc[0]
     return None
 
@@ -654,7 +689,7 @@ def steady_state_exception(gms, fgc):
     -------
     (fGC, fGC, str): (target_gc, insert_gc, 'A', 'B' or 'O') or None
     """
-    _logger.debug('Steady state exception thrown.')
+    if _LOG_DEBUG: _logger.debug(f"Steady state exception thrown for GC ref {fgc['ref']}.")
     fgc_graph = fgc['igraph']
 
     # Find unconnected destination endpoints. Determine highest row & endpoint types.

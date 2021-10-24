@@ -839,7 +839,7 @@ class gc_graph():
             5. self.app_graph is regenerated
             6. Check a valid steady state has been achieved
         """
-        _logger.debug("Nomralising...")
+        _logger.debug("Normalising...")
         # 1 Connect all destinations to existing sources if possible
         self.connect_all()
 
@@ -1215,9 +1215,14 @@ class gc_graph():
         -------
         inputs (list(int)): Integers are ep_type_ints in the order defined in the graph.
         """
-        inputs = sorted((ep for ep in filter(lambda x: x[ep_idx.ROW == 'I'],
-                                             self.graph.values())), key=lambda x: x[ep_idx.INDEX])
-        return [ep[ep_idx.TYPE] for ep in inputs]
+        eps = (ep for ep in filter(lambda x: x[ep_idx.ROW] == 'I', self.graph.values()))
+        sorted_eps = sorted(eps, key=lambda x: x[ep_idx.INDEX])
+        previous = -1
+        inputs = []
+        for ep in filter(lambda x: x[ep_idx.INDEX] != previous, sorted_eps):
+            previous = ep[ep_idx.INDEX]
+            inputs.append(ep[ep_idx.TYPE])
+        return inputs
 
     def output_if(self):
         """Return the output interface definition.
@@ -1226,5 +1231,5 @@ class gc_graph():
         -------
         outputs (list(int)): Integers are ep_type_ints in the order defined in the graph.
         """
-        inputs = sorted((ep for ep in filter(_OUT_FUNC, self.graph.values())), key=lambda x: x[ep_idx.INDEX])
-        return [ep[ep_idx.TYPE] for ep in inputs]
+        outputs = sorted((ep for ep in filter(_OUT_FUNC, self.graph.values())), key=lambda x: x[ep_idx.INDEX])
+        return [ep[ep_idx.TYPE] for ep in outputs]

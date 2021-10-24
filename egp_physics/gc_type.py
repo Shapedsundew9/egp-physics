@@ -229,7 +229,7 @@ class gGC(_GC):
     validator = generic_validator(_get_schema(_GGC), allow_unknown=True)
     higher_layer_cols = tuple((col for col in filter(lambda x: x[0] == '_', validator.schema.keys())))
 
-    def __init__(self, gc={}, interface=None, modified=False, sv=True):
+    def __init__(self, gc={}, interface=None, modified=False, individual=False, sv=True):
         """Construct.
 
         Args
@@ -240,6 +240,7 @@ class gGC(_GC):
         # TODO: Consider lazy loading fields
         super().__init__(gc)
         self.setdefault('modified', modified)
+        self.setdefault('individual', individual)
         self.setdefault('pgc_ref', self._ref_from_sig('pgc'))
         self.setdefault('ancestor_a_ref', self._ref_from_sig('ancestor_b'))
         self.setdefault('ancestor_b_ref', self._ref_from_sig('ancestor_a'))
@@ -247,7 +248,12 @@ class gGC(_GC):
         self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
         self.setdefault('igraph', gc_graph(self['graph']))
         self.setdefault('exec', None)
-        self['interface'] = interface_hash(self['igraph'].input_if(), self['igraph'].output_if())
+        if 'inputs' not in self:
+            inputs = self['igraph'].input_if()
+            outputs = self['igraph'].output_if()
+            _, self['input_types'], self['inputs'] = interface_definition(inputs, vtype.EP_TYPE_INT)
+            _, self['output_types'], self['outputs'] = interface_definition(outputs, vtype.EP_TYPE_INT)
+            self['interface'] = interface_hash(inputs, outputs)
         for col in filter(lambda x: x[1:] in gc.keys(), gGC.higher_layer_cols):
             gc[col] = copy(gc[col[1:]])
         if not sv:
