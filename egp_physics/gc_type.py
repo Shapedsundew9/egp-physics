@@ -229,7 +229,7 @@ class gGC(_GC):
     validator = generic_validator(_get_schema(_GGC), allow_unknown=True)
     higher_layer_cols = tuple((col for col in filter(lambda x: x[0] == '_', validator.schema.keys())))
 
-    def __init__(self, gc={}, interface=None, modified=False, individual=False, sv=True):
+    def __init__(self, gc={}, interface=None, modified=False, population=None, sv=True):
         """Construct.
 
         Args
@@ -240,7 +240,7 @@ class gGC(_GC):
         # TODO: Consider lazy loading fields
         super().__init__(gc)
         self.setdefault('modified', modified)
-        self.setdefault('individual', individual)
+        self.setdefault('population', population)
         self.setdefault('pgc_ref', self._ref_from_sig('pgc'))
         self.setdefault('ancestor_a_ref', self._ref_from_sig('ancestor_b'))
         self.setdefault('ancestor_b_ref', self._ref_from_sig('ancestor_a'))

@@ -653,6 +653,9 @@ def proximity_select(gms, xputs):
     -------
     (int, dict): (match_type, agc) or None
     """
+    # TODO: Lots of short queries is inefficient. Ideas:
+    #   a) Cache queries (but this means missing out on new options)
+    #   b) Batch queries (but this is architecturally tricky)
     match_type = randint(0, _NUM_MATCH_TYPES - 1)
     agc = tuple(gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs))
     while not agc and match_type < _NUM_MATCH_TYPES - 1:
