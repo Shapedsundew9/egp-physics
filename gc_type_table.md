@@ -36,6 +36,7 @@ GC Type Field Requirements
 | individual | :large_blue_circle: |  |  |
 | input_types | :large_blue_circle: | :black_circle: | :black_circle: |
 | inputs | :large_blue_circle: | :black_circle: | :black_circle: |
+| interface | :black_circle: |  |  |
 | meta_data | :large_blue_circle: |  |  |
 | modified | :large_blue_circle: |  |  |
 | num_codes | :large_blue_circle: |  |  |

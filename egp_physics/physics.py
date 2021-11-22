@@ -398,8 +398,8 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
 
     Returns
     -------
-    ([fgc]): List of fGC's. Element 0 may replace target_gc.
-    Subsequent fGC's are children of element 0.
+    (rgc, {ref: fgc}): List of fGC's. First FGC is the insert_gc followed by fgc's
+    created to stabilise rgc.
     """
     if target_gc['igraph'].has_f():
         return []

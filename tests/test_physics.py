@@ -7,7 +7,7 @@ data/test_glib_config.json. The user requires database CREATE & DELETE rights.
 from collections import Counter
 from hashlib import md5
 from json import load
-from logging import getLogger
+from logging import DEBUG, INFO, WARN, ERROR, FATAL, NullHandler, getLogger
 from os.path import dirname, join
 from pprint import pformat
 from random import choice, randint
@@ -23,7 +23,16 @@ with open(join(dirname(__file__), "data/test_physics_results.json"), "r") as fil
 
 
 STATS_N = 1000
+
+
+# Logging
 _logger = getLogger(__name__)
+_logger.addHandler(NullHandler())
+_LOG_DEBUG = _logger.isEnabledFor(DEBUG)
+_LOG_INFO = _logger.isEnabledFor(INFO)
+_LOG_WARN = _logger.isEnabledFor(WARN)
+_LOG_ERROR = _logger.isEnabledFor(ERROR)
+_LOG_FATAL = _logger.isEnabledFor(FATAL)
 
 
 def test_basic_insert_1_simple():
@@ -32,7 +41,6 @@ def test_basic_insert_1_simple():
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
     graph = gc_insert(None, tgc, igc, 'A')[0]['graph']
     code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
-
     """
     # Debug code
     graphs = {}
@@ -285,13 +293,19 @@ def test_basic_insert_4_stats():
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
 
     unlikely = 0
-    for iteration in range(3):
+    for _ in range(3):
         rgc_codes = []
         fgc_codes = []
         for _ in range(STATS_N):
             result = gc_insert(None, tgc, igc, 'A')
+            #TODO: Make code generation a function and reuse.
             rgc_codes.append(md5(bytearray(pformat(result[0]['graph']), encoding='ascii')).hexdigest())
-            fgc_codes.append(md5(bytearray(pformat(result[1]['graph']), encoding='ascii')).hexdigest())
+            if _LOG_DEBUG:
+                _logger.debug(f"RGC checksum {rgc_codes[-1]} for {result[0]['graph']}")
+            for fgc in tuple(result[1].values())[1:]:
+                fgc_codes.append(md5(bytearray(pformat(fgc['graph']), encoding='ascii')).hexdigest())
+                if _LOG_DEBUG:
+                    _logger.debug(f"FGC checksum {fgc_codes[-1]} for {fgc['graph']}")
         rgc_counts = Counter(rgc_codes)
         fgc_counts = Counter(fgc_codes)
 
@@ -328,13 +342,19 @@ def test_basic_insert_5_stats():
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
 
     unlikely = 0
-    for iteration in range(3):
+    for _ in range(3):
         rgc_codes = []
         fgc_codes = []
         for _ in range(STATS_N):
             result = gc_insert(None, tgc, igc, 'B')
+            #TODO: Make code generation a function and reuse.
             rgc_codes.append(md5(bytearray(pformat(result[0]['graph']), encoding='ascii')).hexdigest())
-            fgc_codes.append(md5(bytearray(pformat(result[1]['graph']), encoding='ascii')).hexdigest())
+            if _LOG_DEBUG:
+                _logger.debug(f"RGC checksum {rgc_codes[-1]} for {result[0]['graph']}")
+            for fgc in tuple(result[1].values())[1:]:
+                fgc_codes.append(md5(bytearray(pformat(fgc['graph']), encoding='ascii')).hexdigest())
+                if _LOG_DEBUG:
+                    _logger.debug(f"FGC checksum {fgc_codes[-1]} for {fgc['graph']}")
         rgc_counts = Counter(rgc_codes)
         fgc_counts = Counter(fgc_codes)
 
@@ -406,4 +426,4 @@ def test_random_homogeneous_insertion():
         tgc = choice(gc_list)
         igc = choice(gc_list)
         gc_list.append(gc_insert(None, tgc, igc, choice('ABO'))[0])
-        gc_list[-1].validate()
+        assert gc_list[-1]['igraph'].validate()

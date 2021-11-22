@@ -165,8 +165,12 @@ class eGC(_GC):
         super().__init__(gc)
         if inputs is not None:
             graph_inputs, self['input_types'], self['inputs'] = interface_definition(inputs, vt)
+        else:
+            graph_inputs = []
         if outputs is not None:
             graph_outputs, self['output_types'], self['outputs'] = interface_definition(outputs, vt)
+        else:
+            graph_outputs = []
         self.setdefault('gca_ref', self._ref_from_sig('gca'))
         self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
         self['modified'] = True
@@ -179,7 +183,11 @@ class eGC(_GC):
                 igraph = gc_graph()
                 igraph.add_inputs(graph_inputs)
                 igraph.add_outputs(graph_outputs)
+                self['graph'] = igraph.application_graph()
             self['igraph'] = igraph
+        elif 'graph' not in self:
+            self['graph'] = self['igraph'].application_graph()
+
         self['interface'] = interface_hash(graph_inputs, graph_outputs)
         if not sv:
             self.validate()

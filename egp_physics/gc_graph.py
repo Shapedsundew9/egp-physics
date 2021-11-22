@@ -14,7 +14,7 @@ from math import sqrt
 from pprint import pformat
 from random import choice, sample
 
-from bokeh.io import save
+from bokeh.io import save, output_file
 from bokeh.models import (BoxSelectTool, Circle, ColumnDataSource, HoverTool,
                           LabelSet, MultiLine, NodesAndLinkedEdges, Range1d,
                           TapTool)
@@ -502,7 +502,8 @@ class gc_graph():
                           source=source, text_font_size='font_size', x_offset='x_offset', y_offset='y_offset',
                           text_font='font', text_font_style='bold', text_color='black')
         plot.renderers.append(labels)
-        save(plot, filename=f"{path}.html", title="Erasmus GP GC Internal Graph")
+        output_file(f"{path}.html", title="Erasmus GP GC Internal Graph")
+        save(plot)
 
     def gt_graph(self):
         """Create a graph_tool graph treating rows as nodes.
