@@ -671,6 +671,65 @@ def proximity_select(gms, xputs):
     return None
 
 
+def proximity_select(gms, xputs):
+    """Select a genetic code to at least partially connect inputs to outputs.
+
+    The selection is weighted random based on the suitability of the candidates
+    based on 'physics' alone.
+
+    For performance (and the fact it is unknown in terms of success at the time of
+    development) the selection process follows 2 steps.
+
+        a) The type of match is randomly selected from the list defined by
+            _MATCH_TYPES_SQL using the proximity_weights data from the meta table.
+        b) From the candidates found by a) randomly select one*.
+
+    In the event no candidates are found for type of match N p_count will be incremented
+    for match N and type of match N+1 will be
+    attempted. If no matches are found for match type 3 then None is returned.
+
+    TODO: *The performance of this function needs careful benchmarking. The higher index
+    match types could return a lot of results for the random selection step.
+    TODO: Consider match types where the order of inputs/outputs does not matter.
+
+    Args
+    ----
+    xputs (dict): The inputs & outputs required of the candidates.
+        {
+            'input_types': list(int) - list of ascending gc_types in the inputs.
+            'inputs': list(int) - Ordered indexes into list above defining the GC input interface.
+            'output_types': list(int) - list of ascending gc_types in the inputs.
+            'outputs': list(int) - Ordered indexes into list above defining the GC output interface.
+            'exclude_column': (str) - Column with values to exclude
+            'exclusions': list(object) - Exclude rows with these values in 'exclude_column' column.
+        }
+        Other key:value pairs will be ignored.
+
+    Returns
+    -------
+    (int, dict): (match_type, agc) or None
+    """
+    # TODO: Lots of short queries is inefficient. Ideas:
+    #   a) Cache queries (but this means missing out on new options)
+    #   b) Batch queries (but this is architecturally tricky)
+    match_type = randint(0, _NUM_MATCH_TYPES - 1)
+    agc = tuple(gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs))
+    while not agc and match_type < _NUM_MATCH_TYPES - 1:
+        if _LOG_DEBUG:
+            _logger.debug(f'Proximity selection match_type {match_type} found no candidates.')
+        match_type += 1
+        agc = tuple(gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs))
+    if agc:
+        if _LOG_DEBUG:
+            _logger.debug(f'Proximity selection match_type {match_type} found a candidate.')
+            _logger.debug(f"Candidate: {agc[0]}")
+        return agc[0]
+    return None
+
+
+def subGC_select(gms, tgc):
+    """"""
+
 def steady_state_exception(gms, fgc):
     """Define what GC must be inserted to complete or partially complete the fgc graph.
 
