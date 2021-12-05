@@ -386,6 +386,7 @@ def test_remove_output_simple(test):
         assert after == before == 0
     # graph.draw(join(_log_location, 'graph_' + str(test)))
 
+
 @pytest.mark.parametrize("test", range(100))
 def test_remove_constant_simple(test):
     """Verify removing contants makes valid graphs.
@@ -410,3 +411,79 @@ def test_remove_constant_simple(test):
         assert not codes
     assert after == before - 1 if before else after == before == 0
     # graph.draw(join(_log_location, 'graph_' + str(test)))
+
+
+@pytest.mark.parametrize("test", range(100))
+def test_binary_compound_modifications(test):
+    """Verify compounding modifications still makes valid graphs.
+
+    Create a random graph, do 2 random modifications & re-normalise.
+    To keep it simple all the endpoints have the same type ("int").
+    """
+    # TODO: These random test cases need to be made static when we are confident in them.
+    # Generate them into a JSON file.
+    graph = random_graph()
+    assert graph.validate()
+
+    for _ in range(2):
+        a = randint(0, 4)
+        if a == 0:
+            graph.add_input()
+        elif a == 1:
+            graph.remove_input()
+        elif a == 2:
+            graph.add_output(asint('builtins_int'))
+        elif a == 3:
+            graph.remove_output()
+        elif a == 4:
+            graph.remove_constant()
+
+    # E1000 & E1001 are legit errors when modifiying the graph
+    graph.normalize()
+    if not graph.validate():
+        codes = set([t.code for t in graph.status])
+
+        # E1006 (F with no P) can occur if E1000 occurs (no O)
+        if 'E01000' in codes:
+            codes.discard('E01006')
+        codes.discard('E01000')
+        codes.discard('E01001')
+        assert not codes
+
+
+@pytest.mark.parametrize("test", range(100))
+def test_nary_compound_modifications(test):
+    """Verify compounding modifications still makes valid graphs.
+
+    Create a random graph, do 3 to 20 random modifications & re-normalise.
+    To keep it simple all the endpoints have the same type ("int").
+    """
+    # TODO: These random test cases need to be made static when we are confident in them.
+    # Generate them into a JSON file.
+    graph = random_graph()
+    assert graph.validate()
+
+    for _ in range(randint(3, 20)):
+        a = randint(0, 4)
+        if a == 0:
+            graph.add_input()
+        elif a == 1:
+            graph.remove_input()
+        elif a == 2:
+            graph.add_output(asint('builtins_int'))
+        elif a == 3:
+            graph.remove_output()
+        elif a == 4:
+            graph.remove_constant()
+
+    # E1000 & E1001 are legit errors when modifiying the graph
+    graph.normalize()
+    if not graph.validate():
+        codes = set([t.code for t in graph.status])
+
+        # E1006 (F with no P) can occur if E1000 occurs (no O)
+        if 'E01000' in codes:
+            codes.discard('E01006')
+        codes.discard('E01000')
+        codes.discard('E01001')
+        assert not codes
