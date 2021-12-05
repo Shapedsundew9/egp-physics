@@ -598,7 +598,7 @@ class gc_graph():
         """
         if ep_type is None:
             ep_type = choice(REAL_EP_TYPE_VALUES)
-        i_index = self.rows[SRC_EP]['I']
+        i_index = self.rows[SRC_EP].get('I', 0)
         self._add_ep([SRC_EP, 'I', i_index, ep_type, []])
 
     def remove_input(self, idx=None):
@@ -615,10 +615,16 @@ class gc_graph():
             if idx is None:
                 idx = randint(0, num_inputs - 1)
             ep_ref = ['I', idx]
+            if _LOGIT:
+                _logger.debug(f"Removing input {ep_ref}.")
             ep = self.graph[hash_ref(ep_ref, SRC_EP)]
-            self._remove_ep(ep)
+            self._remove_ep(ep, False)
             for ref in ep[ep_idx.REFERENCED_BY]:
                 self.graph[hash_ref(ref, DST_EP)][ep_idx.REFERENCED_BY].remove(ep_ref)
+
+            # Only re-index row I if it was not the last endpoint that was removed (optimisation)
+            if idx != num_inputs - 1:
+                self.reindex_row('I')
 
     def add_output(self, ep_type=None):
         """Create and append an unconnected row O endpoint.
@@ -631,7 +637,11 @@ class gc_graph():
         if ep_type is None:
             ep_type = choice(REAL_EP_TYPE_VALUES)
         o_index = self.rows[DST_EP]['O']
-        self._add_ep([DST_EP, 'O', o_index, ep_type, []])
+        ep = [DST_EP, 'O', o_index, ep_type, []]
+        self._add_ep(ep)
+        if self.has_f():
+            ep = [DST_EP, 'P', o_index, ep_type, []]
+            self._add_ep(ep)
 
     def remove_output(self, idx=None):
         """Remove output idx.
@@ -647,10 +657,28 @@ class gc_graph():
             if idx is None:
                 idx = randint(0, num_outputs - 1)
             ep_ref = ['O', idx]
+            if _LOGIT:
+                _logger.debug(f"Removing output {ep_ref}.")
             ep = self.graph[hash_ref(ep_ref, DST_EP)]
-            self._remove_ep(ep)
+            self._remove_ep(ep, False)
             for ref in ep[ep_idx.REFERENCED_BY]:
                 self.graph[hash_ref(ref, SRC_EP)][ep_idx.REFERENCED_BY].remove(ep_ref)
+
+            # If F exists then must deal with P
+            if self.has_f():
+                ep_ref = ['P', idx]
+                if _LOGIT:
+                    _logger.debug(f"Removing output {ep_ref}.")
+                ep = self.graph[hash_ref(ep_ref, DST_EP)]
+                self._remove_ep(ep, False)
+                for ref in ep[ep_idx.REFERENCED_BY]:
+                    self.graph[hash_ref(ref, SRC_EP)][ep_idx.REFERENCED_BY].remove(ep_ref)
+
+            # Only re-index row O if it was not the last endpoint that was removed (optimisation)
+            if idx != num_outputs - 1:
+                self.reindex_row('O')
+                if self.has_f():
+                    self.reindex_row('P')
 
     def remove_constant(self, idx=None):
         """Remove constant idx.
@@ -666,10 +694,16 @@ class gc_graph():
             if idx is None:
                 idx = randint(0, num_constants - 1)
             ep_ref = ['C', idx]
+            if _LOGIT:
+                _logger.debug(f"Removing constant {ep_ref}.")
             ep = self.graph[hash_ref(ep_ref, SRC_EP)]
-            self._remove_ep(ep)
+            self._remove_ep(ep, False)
             for ref in ep[ep_idx.REFERENCED_BY]:
                 self.graph[hash_ref(ref, DST_EP)][ep_idx.REFERENCED_BY].remove(ep_ref)
+
+            # Only re-index row C if it was not the last endpoint that was removed (optimisation)
+            if idx != num_constants - 1:
+                self.reindex_row('C')
 
     def add_inputs(self, inputs):
         """Create and add unconnected row I endpoints.
@@ -916,7 +950,9 @@ class gc_graph():
         return self._num_eps('O', DST_EP)
 
     def reindex_row(self, row):
-        """If end points have been removed from a row the row will need
+        """Re-index row.
+
+        If end points have been removed from a row the row will need
         reindexing so the indicies are contiguous (starting at 0).
 
         Rows A & B cannot be reindexed as their interfaces are bound to
@@ -934,9 +970,12 @@ class gc_graph():
         # For each row select all the endpoints and iterate through the references to them
         # For each reference update: Find the reverse reference and update it with the new index
         # Finally update the index in the endpoint
+        # TODO: Do we need to re-create this filter?
         for ep in filter(row_filter, tuple(self.graph.values())):
+            if _LOGIT:
+                _logger.debug(f"References to re-index: {ep[ep_idx.REFERENCED_BY]}")
             for refs in ep[ep_idx.REFERENCED_BY]:
-                for refd in self.graph[hash_ref(refs, DST_EP)][ep_idx.REFERENCED_BY]:
+                for refd in self.graph[hash_ref(refs, not ep[ep_idx.EP_TYPE])][ep_idx.REFERENCED_BY]:
                     if refd[ref_idx.ROW] == row and refd[ref_idx.INDEX] == ep[ep_idx.INDEX]:
                         refd[ref_idx.INDEX] = r_map[ep[ep_idx.INDEX]]
             del self.graph[hash_ep(ep)]

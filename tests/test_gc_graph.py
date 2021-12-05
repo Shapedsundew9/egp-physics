@@ -6,11 +6,17 @@ from json import load
 from os.path import dirname, join
 from random import randint, random
 from numpy.random import choice
+from logging import DEBUG, NullHandler, getLogger
 
 import pytest
 from egp_physics.ep_type import EP_TYPE_VALUES, INVALID_EP_TYPE_VALUE, asint
 from egp_physics.gc_graph import (DESTINATION_ROWS, DST_EP, SOURCE_ROWS,
                                   SRC_EP, conn_idx, const_idx, gc_graph)
+
+
+_logger = getLogger(__name__)
+_logger.addHandler(NullHandler())
+_LOG_DEBUG = _logger.isEnabledFor(DEBUG)
 
 
 _TEST_RESULTS_JSON = 'data/test_gc_graph_results.json'
@@ -123,9 +129,11 @@ def random_graph(p=0.0, must_be_valid=False):  # noqa: C901
 
         for _ in range(len(list(filter(graph.dst_filter(), graph.graph.values())))):
             graph.random_add_connection()
-        #graph.reindex_row('C')
+        # graph.reindex_row('C')
         graph.normalize()
         valid = graph.validate() or not must_be_valid
+        if _LOG_DEBUG:
+            _logger.debug(f"Random graph generated:\n{graph}")
     return graph
 
 
@@ -276,3 +284,129 @@ def test_stack(test):
     #    print(gC)
     #    gC.draw('gC')
     #    barf()
+
+
+@pytest.mark.parametrize("test", range(100))
+def test_add_input_simple(test):
+    """Verify adding inputs makes valid graphs.
+
+    Create a random graph, add an input & re-normalise.
+    To keep it simple all the endpoints have the same type ("int").
+    """
+    # TODO: These random test cases need to be made static when we are confident in them.
+    # Generate them into a JSON file.
+    graph = random_graph()
+    assert graph.validate()
+
+    before = graph.num_inputs()
+    graph.add_input()
+    graph.normalize()
+    after = graph.num_inputs()
+    assert graph.validate()
+    assert after == before + 1
+    # graph.draw(join(_log_location, 'graph_' + str(test)))
+
+
+@pytest.mark.parametrize("test", range(100))
+def test_remove_input_simple(test):
+    """Verify removing inputs makes valid graphs.
+
+    Create a random graph, remove an input & re-normalise.
+    To keep it simple all the endpoints have the same type ("int").
+    """
+    # TODO: These random test cases need to be made static when we are confident in them.
+    # Generate them into a JSON file.
+    graph = random_graph()
+    assert graph.validate()
+
+    before = graph.num_inputs()
+    graph.remove_input()
+    graph.normalize()
+    after = graph.num_inputs()
+
+    # E1001 is a legit error when removing an input.
+    if not graph.validate():
+        codes = set([t.code for t in graph.status])
+        codes.discard('E01001')
+        assert not codes
+    assert after == before - 1 if before else after == before == 0
+    # graph.draw(join(_log_location, 'graph_' + str(test)))
+
+
+@pytest.mark.parametrize("test", range(100))
+def test_add_output_simple(test):
+    """Verify adding outputs makes valid graphs.
+
+    Create a random graph, add an output & re-normalise.
+    To keep it simple all the endpoints have the same type ("int").
+    """
+    # TODO: These random test cases need to be made static when we are confident in them.
+    # Generate them into a JSON file.
+    graph = random_graph()
+    assert graph.validate()
+
+    before = graph.num_outputs()
+    graph.add_output(asint('builtins_int'))
+    graph.normalize()
+    after = graph.num_outputs()
+    assert graph.validate()
+    assert after == before + 1
+    # graph.draw(join(_log_location, 'graph_' + str(test)))
+
+
+@pytest.mark.parametrize("test", range(100))
+def test_remove_output_simple(test):
+    """Verify removing outputs makes valid graphs.
+
+    Create a random graph, remove an output & re-normalise.
+    To keep it simple all the endpoints have the same type ("int").
+    """
+    # TODO: These random test cases need to be made static when we are confident in them.
+    # Generate them into a JSON file.
+    graph = random_graph()
+    assert graph.validate()
+
+    before = graph.num_outputs()
+    graph.remove_output()
+    graph.normalize()
+    after = graph.num_outputs()
+
+    # E1000 is a legit error when removing an output (no row O).
+    if not graph.validate():
+        codes = set([t.code for t in graph.status])
+
+        # E1006 (F with no P) can occur if E1000 occurs (no O)
+        if 'E01000' in codes:
+            codes.discard('E01006')
+        codes.discard('E01000')
+        assert not codes
+    if before:
+        assert after == before - 1
+    else:
+        assert after == before == 0
+    # graph.draw(join(_log_location, 'graph_' + str(test)))
+
+@pytest.mark.parametrize("test", range(100))
+def test_remove_constant_simple(test):
+    """Verify removing contants makes valid graphs.
+
+    Create a random graph, remove a constant & re-normalise.
+    To keep it simple all the endpoints have the same type ("int").
+    """
+    # TODO: These random test cases need to be made static when we are confident in them.
+    # Generate them into a JSON file.
+    graph = random_graph()
+    assert graph.validate()
+
+    before = len(graph.app_graph.get('C', []))
+    graph.remove_constant()
+    graph.normalize()
+    after = len(graph.app_graph.get('C', []))
+
+    # E1001 is a legit error when removing an constant.
+    if not graph.validate():
+        codes = set([t.code for t in graph.status])
+        codes.discard('E01001')
+        assert not codes
+    assert after == before - 1 if before else after == before == 0
+    # graph.draw(join(_log_location, 'graph_' + str(test)))

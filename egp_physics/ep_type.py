@@ -32,13 +32,16 @@ _EGP_PHYSICAL_TYPE_LIMIT = -32369
 _EGP_REAL_TYPE_LIMIT = 0
 _EGP_TYPE_LIMIT = 32769
 
-def _SPECIAL_TYPE_FILTER(v): v < _EGP_PHYSICAL_TYPE_LIMIT and v >= _EGP_SPECIAL_TYPE_LIMIT
-def _PHYSICAL_TYPE_FILTER(v): v < _EGP_REAL_TYPE_LIMIT and v >= _EGP_PHYSICAL_TYPE_LIMIT
-def _REAL_TYPE_FILTER(v): v < _EGP_TYPE_LIMIT and v >= _EGP_REAL_TYPE_LIMIT
+def _SPECIAL_TYPE_FILTER(v): return v < _EGP_PHYSICAL_TYPE_LIMIT and v >= _EGP_SPECIAL_TYPE_LIMIT
+def _PHYSICAL_TYPE_FILTER(v): return v < _EGP_REAL_TYPE_LIMIT and v >= _EGP_PHYSICAL_TYPE_LIMIT
+def _REAL_TYPE_FILTER(v): return v < _EGP_TYPE_LIMIT and v >= _EGP_REAL_TYPE_LIMIT
 
 SPECIAL_EP_TYPE_VALUES = tuple((v for v in filter(_SPECIAL_TYPE_FILTER, ep_type_lookup['n2v'].values())))
 PHYSICAL_EP_TYPE_VALUES = tuple((v for v in filter(_PHYSICAL_TYPE_FILTER, ep_type_lookup['n2v'].values())))
 REAL_EP_TYPE_VALUES = tuple((v for v in filter(_REAL_TYPE_FILTER, ep_type_lookup['n2v'].values())))
+_logger.info(f"{len(SPECIAL_EP_TYPE_VALUES)} special endpoint types identified.")
+_logger.info(f"{len(PHYSICAL_EP_TYPE_VALUES)} physical endpoint types identified.")
+_logger.info(f"{len(REAL_EP_TYPE_VALUES)} real endpoint types identified.")
 
 INVALID_EP_TYPE_NAME = 'egp_invalid_type'
 INVALID_EP_TYPE_VALUE = -32768

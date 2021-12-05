@@ -729,9 +729,6 @@ def proximity_select(gms, xputs):
     return None
 
 
-def subGC_select(gms, tgc):
-    """"""
-
 def steady_state_exception(gms, fgc):
     """Define what GC must be inserted to complete or partially complete the fgc graph.
 
