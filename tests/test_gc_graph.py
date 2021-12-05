@@ -123,6 +123,7 @@ def random_graph(p=0.0, must_be_valid=False):  # noqa: C901
 
         for _ in range(len(list(filter(graph.dst_filter(), graph.graph.values())))):
             graph.random_add_connection()
+        #graph.reindex_row('C')
         graph.normalize()
         valid = graph.validate() or not must_be_valid
     return graph

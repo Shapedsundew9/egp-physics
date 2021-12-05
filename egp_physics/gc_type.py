@@ -254,7 +254,7 @@ class gGC(_GC):
         self.setdefault('ancestor_b_ref', self._ref_from_sig('ancestor_a'))
         self.setdefault('gca_ref', self._ref_from_sig('gca'))
         self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
-        self.setdefault('igraph', gc_graph(self['graph']))
+        self.setdefault('igraph', gc_graph(self.get('graph', {})))
         self.setdefault('exec', None)
         if 'inputs' not in self:
             inputs = self['igraph'].input_if()
@@ -282,7 +282,8 @@ def md_table():
     gcts = (
         _GC(sv=True),
         eGC(sv=True),
-        mGC(sv=True)
+        mGC(sv=True),
+        gGC(sv=True)
     )
     with open('gc_type_table.md', 'w') as file_ptr:
         file_ptr.write("GC Type Field Requirements\n")

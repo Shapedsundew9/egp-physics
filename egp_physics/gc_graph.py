@@ -12,7 +12,7 @@ from enum import IntEnum
 from logging import DEBUG, NullHandler, getLogger
 from math import sqrt
 from pprint import pformat
-from random import choice, sample
+from random import choice, sample, randint
 
 from bokeh.io import save, output_file
 from bokeh.models import (BoxSelectTool, Circle, ColumnDataSource, HoverTool,
@@ -25,7 +25,7 @@ from graph_tool import Graph
 from graph_tool.draw import graph_draw
 from networkx import DiGraph, get_node_attributes, spring_layout
 
-from .ep_type import asstr, compatible, import_str, type_str, validate
+from .ep_type import asstr, compatible, import_str, type_str, validate, REAL_EP_TYPE_VALUES
 from .utils.text_token import register_token_code, text_token
 
 _logger = getLogger(__name__)
@@ -39,11 +39,15 @@ SOURCE_ROWS = ('I', 'C', 'A', 'B')
 
 
 def _REPR_LAMBDA(x): return x[1][ep_idx.INDEX]
-def _OUT_FUNC(x): return x[ep_idx.ROW == 'O'] and x[ep_idx.EP_TYPE] == SRC_EP
+def _OUT_FUNC(x): return x[ep_idx.ROW] == 'O' and x[ep_idx.EP_TYPE] == SRC_EP
+def _ROW_U_FILTER(x): return x[ep_idx.ROW] == 'U'
+def _SRC_UNREF_FILTER(x): return x[ep_idx.EP_TYPE] == SRC_EP and not x[ep_idx.REFERENCED_BY]
+def _DST_UNREF_FILTER(x): return x[ep_idx.EP_TYPE] == DST_EP and not x[ep_idx.REFERENCED_BY]
+
 
 # TODO: Make lambda function definitions static
 # TODO: Replace all the little filter functions with static lambda functions.
-
+# TODO: Use EP_TYPE consistently (i.e. not for both EP data type & SRC or DST)
 
 # NetworkX & Bokeh parameters
 _NX_NODE_RADIUS = 30
@@ -165,7 +169,7 @@ class ep_idx(IntEnum):
 
 
 def hash_ref(ref, ep_type):
-    """Convert an endpoint refereence into an endpoint hash."""
+    """Convert an endpoint reference into an endpoint hash."""
     return ref[0] + str(ref[1]) + 'ds'[ep_type]
 
 
@@ -584,6 +588,89 @@ class gc_graph():
         self.gt_draw(path, size)
         self.nx_draw(path, size)
 
+    def add_input(self, ep_type=None):
+        """Create and append an unconnected row I endpoint.
+
+        Args
+        ----
+        ep_type (int): ep_type in integer format. If None a random
+            real ep_type is chosen.
+        """
+        if ep_type is None:
+            ep_type = choice(REAL_EP_TYPE_VALUES)
+        i_index = self.rows[SRC_EP]['I']
+        self._add_ep([SRC_EP, 'I', i_index, ep_type, []])
+
+    def remove_input(self, idx=None):
+        """Remove input idx.
+
+        No-op if there are no inputs.
+
+        Args
+        ----
+        idx (int): Index of input to remove. If None a random index is chosen.
+        """
+        num_inputs = self.rows[SRC_EP].get('I', 0)
+        if num_inputs:
+            if idx is None:
+                idx = randint(0, num_inputs - 1)
+            ep_ref = ['I', idx]
+            ep = self.graph[hash_ref(ep_ref, SRC_EP)]
+            self._remove_ep(ep)
+            for ref in ep[ep_idx.REFERENCED_BY]:
+                self.graph[hash_ref(ref, DST_EP)][ep_idx.REFERENCED_BY].remove(ep_ref)
+
+    def add_output(self, ep_type=None):
+        """Create and append an unconnected row O endpoint.
+
+        Args
+        ----
+        ep_type (int): ep_type in integer format. If None a random
+            real ep_type is chosen.
+        """
+        if ep_type is None:
+            ep_type = choice(REAL_EP_TYPE_VALUES)
+        o_index = self.rows[DST_EP]['O']
+        self._add_ep([DST_EP, 'O', o_index, ep_type, []])
+
+    def remove_output(self, idx=None):
+        """Remove output idx.
+
+        No-op if there are no outputs.
+
+        Args
+        ----
+        idx (int): Index of output to remove. If None a random index is chosen.
+        """
+        num_outputs = self.rows[DST_EP].get('O', 0)
+        if num_outputs:
+            if idx is None:
+                idx = randint(0, num_outputs - 1)
+            ep_ref = ['O', idx]
+            ep = self.graph[hash_ref(ep_ref, DST_EP)]
+            self._remove_ep(ep)
+            for ref in ep[ep_idx.REFERENCED_BY]:
+                self.graph[hash_ref(ref, SRC_EP)][ep_idx.REFERENCED_BY].remove(ep_ref)
+
+    def remove_constant(self, idx=None):
+        """Remove constant idx.
+
+        No-op if there are no constants.
+
+        Args
+        ----
+        idx (int): Index of constant to remove. If None a random index is chosen.
+        """
+        num_constants = self.rows[SRC_EP].get('C', 0)
+        if num_constants:
+            if idx is None:
+                idx = randint(0, num_constants - 1)
+            ep_ref = ['C', idx]
+            ep = self.graph[hash_ref(ep_ref, SRC_EP)]
+            self._remove_ep(ep)
+            for ref in ep[ep_idx.REFERENCED_BY]:
+                self.graph[hash_ref(ref, DST_EP)][ep_idx.REFERENCED_BY].remove(ep_ref)
+
     def add_inputs(self, inputs):
         """Create and add unconnected row I endpoints.
 
@@ -595,7 +682,6 @@ class gc_graph():
         """
         for index, i in enumerate(inputs):
             self._add_ep([SRC_EP, 'I', index, i, []])
-            self._add_ep([DST_EP, 'U', index, i, [['I', index]]])
 
     def add_outputs(self, outputs):
         """Create and add unconnected row O endpoints.
@@ -829,7 +915,35 @@ class gc_graph():
         """
         return self._num_eps('O', DST_EP)
 
-    def normalize(self):
+    def reindex_row(self, row):
+        """If end points have been removed from a row the row will need
+        reindexing so the indicies are contiguous (starting at 0).
+
+        Rows A & B cannot be reindexed as their interfaces are bound to
+        a GC definition.
+
+        Args
+        ----
+        row (str): One of 'ICPUO'
+        """
+        # Make a list of all the indices in row
+        row_filter = lambda x: x[ep_idx.ROW] == row
+        c_set = [ep[ep_idx.INDEX] for ep in filter(row_filter, self.graph.values())]
+        # Map the indices to a contiguous integer sequence starting at 0
+        r_map = {idx: i for i, idx in enumerate(c_set)}
+        # For each row select all the endpoints and iterate through the references to them
+        # For each reference update: Find the reverse reference and update it with the new index
+        # Finally update the index in the endpoint
+        for ep in filter(row_filter, tuple(self.graph.values())):
+            for refs in ep[ep_idx.REFERENCED_BY]:
+                for refd in self.graph[hash_ref(refs, DST_EP)][ep_idx.REFERENCED_BY]:
+                    if refd[ref_idx.ROW] == row and refd[ref_idx.INDEX] == ep[ep_idx.INDEX]:
+                        refd[ref_idx.INDEX] = r_map[ep[ep_idx.INDEX]]
+            del self.graph[hash_ep(ep)]
+            ep[ep_idx.INDEX] = r_map[ep[ep_idx.INDEX]]
+            self.graph[hash_ep(ep)] = ep
+
+    def normalize(self, removed=False):
         """Make the graph consistent.
 
         The make the graph consistent the following operations are performed:
@@ -844,41 +958,12 @@ class gc_graph():
         # 1 Connect all destinations to existing sources if possible
         self.connect_all()
 
-        # 3 Purge any unconnected constants & inputs.
-        removed = False
-        target_rows = ('C',)
-        for ep in list(filter(self.rows_filter(target_rows, self.unreferenced_filter()), self.graph.values())):
-            removed = True
-            self._remove_ep(ep)
-
-        # If an I or C was removed then we have to ensure the indices of the remaining
-        # endpoints are contiguous and start at 0.
-        if removed:
-            # Make a list of all the indices in I and C
-            c_set = [ep[ep_idx.INDEX] for ep in filter(self.row_filter('C'), self.graph.values())]
-            i_set = [ep[ep_idx.INDEX] for ep in filter(self.row_filter('I'), self.graph.values())]
-            # Map the indices to a contiguous integer sequence starting at 0
-            c_map = {idx: i for i, idx in enumerate(c_set)}
-            i_map = {idx: i for i, idx in enumerate(i_set)}
-            # For each row select all the endpoints and iterate through the references to them
-            # For each reference update: Find the reverse reference and update it with the new index
-            # Finally update the index in the endpoint
-            for row, r_map in {'I': i_map, 'C': c_map}.items():
-                for ep in filter(self.row_filter(row), list(self.graph.values())):
-                    for refs in ep[ep_idx.REFERENCED_BY]:
-                        for refd in self.graph[hash_ref(refs, DST_EP)][ep_idx.REFERENCED_BY]:
-                            if refd[ref_idx.ROW] == row and refd[ref_idx.INDEX] == ep[ep_idx.INDEX]:
-                                refd[ref_idx.INDEX] = r_map[ep[ep_idx.INDEX]]
-                    del self.graph[hash_ep(ep)]
-                    ep[ep_idx.INDEX] = r_map[ep[ep_idx.INDEX]]
-                    self.graph[hash_ep(ep)] = ep
-
         # 4 Reference all unconnected sources in row 'U'
-        row_u_list = list(filter(self.row_filter('U'), self.graph.values()))
-        for ep in row_u_list:
+        row_u_tuple = tuple(filter(_ROW_U_FILTER, self.graph.values()))
+        for ep in row_u_tuple:
             self._remove_ep(ep, check=False)
-        unreferenced = list(filter(self.src_filter(self.unreferenced_filter()), self.graph.values()))
-        for i, ep in enumerate(unreferenced):
+        unref = tuple(filter(_SRC_UNREF_FILTER, self.graph.values()))
+        for i, ep in enumerate(unref):
             self._add_ep([DST_EP, 'U', i, ep[ep_idx.TYPE], [[*ep[1:3]]]])
 
         # 5 self.app_graph is regenerated
@@ -898,7 +983,7 @@ class gc_graph():
         -------
             (bool): True if the graph is in a steady state.
         """
-        return not list(filter(self.unreferenced_filter(self.dst_filter()), self.graph.values()))
+        return not tuple(filter(_DST_UNREF_FILTER, self.graph.values()))
 
     def validate(self, codon=False):   # noqa: C901
         """Check if the graph is valid.
@@ -1060,6 +1145,11 @@ class gc_graph():
             str(self)
 
         return not self.status
+
+    def remove_all_connections(self):
+        """Remove all connections."""
+        for ep in self.graph.values():
+            ep[ep_idx.REFERENCED_BY].clear()
 
     def random_remove_connection(self, n=1):
         """Randomly choose n connections and remove them.

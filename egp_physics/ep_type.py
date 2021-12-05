@@ -27,10 +27,24 @@ with open(join(dirname(__file__), "data/ep_types.json"), "r") as file_ptr:
     ep_type_lookup['instanciation'] = {int(k): v for k, v in ep_type_lookup['instanciation'].items()}
 
 
+_EGP_SPECIAL_TYPE_LIMIT = -32767
+_EGP_PHYSICAL_TYPE_LIMIT = -32369
+_EGP_REAL_TYPE_LIMIT = 0
+_EGP_TYPE_LIMIT = 32769
+
+def _SPECIAL_TYPE_FILTER(v): v < _EGP_PHYSICAL_TYPE_LIMIT and v >= _EGP_SPECIAL_TYPE_LIMIT
+def _PHYSICAL_TYPE_FILTER(v): v < _EGP_REAL_TYPE_LIMIT and v >= _EGP_PHYSICAL_TYPE_LIMIT
+def _REAL_TYPE_FILTER(v): v < _EGP_TYPE_LIMIT and v >= _EGP_REAL_TYPE_LIMIT
+
+SPECIAL_EP_TYPE_VALUES = tuple((v for v in filter(_SPECIAL_TYPE_FILTER, ep_type_lookup['n2v'].values())))
+PHYSICAL_EP_TYPE_VALUES = tuple((v for v in filter(_PHYSICAL_TYPE_FILTER, ep_type_lookup['n2v'].values())))
+REAL_EP_TYPE_VALUES = tuple((v for v in filter(_REAL_TYPE_FILTER, ep_type_lookup['n2v'].values())))
+
 INVALID_EP_TYPE_NAME = 'egp_invalid_type'
 INVALID_EP_TYPE_VALUE = -32768
 UNKNOWN_EP_TYPE_NAME = 'egp_unknown_type'
 UNKNOWN_EP_TYPE_VALUE = -32767
+
 ep_type_lookup['n2v'][INVALID_EP_TYPE_NAME] = INVALID_EP_TYPE_VALUE
 ep_type_lookup['v2n'][INVALID_EP_TYPE_VALUE] = INVALID_EP_TYPE_NAME
 ep_type_lookup['instanciation'][INVALID_EP_TYPE_VALUE] = [None] * 5
@@ -287,6 +301,6 @@ def instance_str(ep_type_int, param_str=''):
     (str): The instanciation e.g. numpy_float32(<param_str>)
     """
     inst_str = type_str(ep_type_int)
-    if ep_type_lookup['instanciation'][ep_type_int][inst.PARAM] is not None:
+    if ep_type_lookup['instanciation'][ep_type_int][inst.PARAM]:
         inst_str += f'({param_str})'
     return inst_str

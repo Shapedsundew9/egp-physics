@@ -542,7 +542,7 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
 stablise = gc_insert
 
 
-def gc_remove(gms, tgc, abpo):
+def gc_remove(gms, tgc, abpo=None):
     """Remove row A, B, P or O from tgc['graph'] to create rgc.
 
     If the row removed is A or B then GCA or GCB is set to None.
@@ -560,13 +560,15 @@ def gc_remove(gms, tgc, abpo):
     ----
     gp (gene_pool or genomic_library): A source of genetic material.
     tgc (xgc): Target xGC to modify.
-    abpo (str): Either 'A', 'B', 'P' or 'O'.
+    abpo (str): Either 'A', 'B', 'P' or 'O'. If None a row is removed at random.
 
     Returns
     -------
     rgc (pgc): Resultant partial GC with a valid graph or None
     """
     rgc = {}
+    if abpo is None:
+        abpo = 'ABPO'[randint(0, 3)]
     rgc_graph = deepcopy(tgc['igraph'])
     rgc_graph.remove_rows(abpo)
     if abpo == 'A':
