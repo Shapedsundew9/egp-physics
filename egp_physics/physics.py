@@ -2,7 +2,7 @@
 from copy import copy, deepcopy
 from logging import DEBUG, NullHandler, getLogger
 from pprint import pformat
-from random import randint
+from random import randint, choice
 
 from .ep_type import vtype
 from .gc_graph import (DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref,
@@ -542,6 +542,37 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
 stablise = gc_insert
 
 
+def gc_stack(gms, top_gc, bottom_gc):
+    """Stack two GC's.
+
+    top_gc is stacked on top of bottom_gc to create a new gc.
+    See gc_graph.stack() for the definition of stacking.
+
+    If the new gc is invalid it is repaired with a steady state exception.
+
+    Args
+    ----
+    NOTE: If a steady state exception occurs for which a candidate cannot
+    be found in the GMS this function returns None.
+
+    Args
+    ----
+    gms (genetic_material_store): A source of genetic material.
+    top_gc (mGC): GC to stack on top
+    bottom_gc (mGC): GC to put on the bottom.
+
+    Returns
+    -------
+    rgc (mGC): Resultant minimal GC with a valid graph or None
+    """
+    _gc = {'gca_ref': top_gc['ref'], 'gcb_ref': bottom_gc['ref']}
+    igraph = top_gc.stack(bottom_gc['igraph'])
+    if igraph is None: return None
+    rgc = mGC(_gc, igraph=igraph)
+    if not rgc['igraph'].normalize():
+        rgc, _ = gc_insert(gms, *steady_state_exception(rgc, gms))
+    return rgc
+
 def gc_remove(gms, tgc, abpo=None):
     """Remove row A, B, P or O from tgc['graph'] to create rgc.
 
@@ -558,17 +589,17 @@ def gc_remove(gms, tgc, abpo=None):
 
     Args
     ----
-    gp (gene_pool or genomic_library): A source of genetic material.
+    gms (gene_pool or genomic_library): A source of genetic material.
     tgc (xgc): Target xGC to modify.
     abpo (str): Either 'A', 'B', 'P' or 'O'. If None a row is removed at random.
 
     Returns
     -------
-    rgc (pgc): Resultant partial GC with a valid graph or None
+    rgc (mGC): Resultant minimal GC with a valid graph or None
     """
     rgc = {}
     if abpo is None:
-        abpo = 'ABPO'[randint(0, 3)]
+        abpo = choice('ABPO')
     rgc_graph = deepcopy(tgc['igraph'])
     rgc_graph.remove_rows(abpo)
     if abpo == 'A':
@@ -587,90 +618,8 @@ def gc_remove(gms, tgc, abpo=None):
     rgc['ref'] = random_reference()
     if not rgc_graph.normalize():
         rgc, _ = gc_insert(gms, *steady_state_exception(rgc, gms))
-    return rgc
-
-
-def mutate_graph(tgc, n=1):
-    """Disconnect random connections in tgc['graph'].
-
-    This is a random physical operation (like a cosmic ray strike) that
-    disrupts the graph of the GC by deleting connections and then restoring a steady
-    state.
-
-    n is the number of connections to delete. 0 is effectively an no-op.
-    If n > number of connections in the graph all connections in the graph will be
-    mutated.
-
-    NOTE: Connections may be reformed the same.
-
-    Args
-    ----
-        tgc (xgc): GC's graph to mutate.
-        n (int): Number of connections to delete.
-
-    Returns
-    -------
-        (xgc): A new GC in a steady state.
-    """
-    graph = tgc['igraph']
-    graph.random_remove_connection(n)
-    assert graph.normalize()
-
-
-def proximity_select(gms, xputs):
-    """Select a genetic code to at least partially connect inputs to outputs.
-
-    The selection is weighted random based on the suitability of the candidates
-    based on 'physics' alone.
-
-    For performance (and the fact it is unknown in terms of success at the time of
-    development) the selection process follows 2 steps.
-
-        a) The type of match is randomly selected from the list defined by
-            _MATCH_TYPES_SQL using the proximity_weights data from the meta table.
-        b) From the candidates found by a) randomly select one*.
-
-    In the event no candidates are found for type of match N p_count will be incremented
-    for match N and type of match N+1 will be
-    attempted. If no matches are found for match type 3 then None is returned.
-
-    TODO: *The performance of this function needs careful benchmarking. The higher index
-    match types could return a lot of results for the random selection step.
-    TODO: Consider match types where the order of inputs/outputs does not matter.
-
-    Args
-    ----
-    xputs (dict): The inputs & outputs required of the candidates.
-        {
-            'input_types': list(int) - list of ascending gc_types in the inputs.
-            'inputs': list(int) - Ordered indexes into list above defining the GC input interface.
-            'output_types': list(int) - list of ascending gc_types in the inputs.
-            'outputs': list(int) - Ordered indexes into list above defining the GC output interface.
-            'exclude_column': (str) - Column with values to exclude
-            'exclusions': list(object) - Exclude rows with these values in 'exclude_column' column.
-        }
-        Other key:value pairs will be ignored.
-
-    Returns
-    -------
-    (int, dict): (match_type, agc) or None
-    """
-    # TODO: Lots of short queries is inefficient. Ideas:
-    #   a) Cache queries (but this means missing out on new options)
-    #   b) Batch queries (but this is architecturally tricky)
-    match_type = randint(0, _NUM_MATCH_TYPES - 1)
-    agc = tuple(gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs))
-    while not agc and match_type < _NUM_MATCH_TYPES - 1:
-        if _LOG_DEBUG:
-            _logger.debug(f'Proximity selection match_type {match_type} found no candidates.')
-        match_type += 1
-        agc = tuple(gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs))
-    if agc:
-        if _LOG_DEBUG:
-            _logger.debug(f'Proximity selection match_type {match_type} found a candidate.')
-            _logger.debug(f"Candidate: {agc[0]}")
-        return agc[0]
-    return None
+        return rgc
+    return mGC(rgc)
 
 
 def proximity_select(gms, xputs):
