@@ -3,11 +3,12 @@ from copy import copy, deepcopy
 from logging import DEBUG, NullHandler, getLogger
 from pprint import pformat
 from random import randint, choice
+from numpy import array, float32
 
 from .ep_type import vtype
 from .gc_graph import (DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref,
                        ref_idx)
-from .gc_type import eGC, interface_definition, mGC
+from .gc_type import eGC, interface_definition, mGC, M_MASK, PHYSICAL_PROPERTY, LAYER_COLUMNS, LAYER_COLUMNS_RESET
 from .utils.reference import random_reference
 
 _logger = getLogger(__name__)
@@ -18,6 +19,7 @@ _LOG_DEBUG = _logger.isEnabledFor(DEBUG)
 # Steady state exception filters.
 _EXCLUSION_LIMIT =  ' AND NOT ({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT 1'
 
+# FIXME: Replace with a localisation hash
 _MATCH_TYPE_0_SQL = ('WHERE {input_types} = {itypes} AND {inputs} = {iidx} AND {output_types} = {otypes} AND {outputs} = {oidx}'
                      + _EXCLUSION_LIMIT)
 _MATCH_TYPE_1_SQL = 'WHERE {input_types} = {itypes} AND {output_types} = {otypes} AND {outputs} = {oidx}' + _EXCLUSION_LIMIT
@@ -729,3 +731,173 @@ def steady_state_exception(gms, fgc):
         return None
 
     return (fgc, eGC(insert_gc), above_row)
+
+
+def pGC_fitness(gp, pgc, delta_fitness):
+    """Update the fitness of the pGC and the pGC's that created it.
+
+    pgc is modified.
+    -1.0 <= delta_fitness <= 1.0
+
+    Args
+    ----
+    gp (gene_pool): The gene_pool that contains pGC and its creators.
+    pgc (pGC): A physical GC.
+    delta_fitness (float): The change in fitness of the GC pGC mutated.
+    """
+    depth = 1
+    delta_fitness = _pGC_fitness(pgc, delta_fitness, depth)
+    evolved = evolve_physical(gp, pgc, depth)
+    pgc = gp.pool.get(pgc['pgc'], None)
+    while evolved and pgc is not None:
+        depth += 1
+        xGC_evolvability(pgc, delta_fitness, depth)
+        delta_fitness = _pGC_fitness(pgc, delta_fitness, depth)
+        evolved = evolve_physical(gp, pgc, depth)
+        pgc = gp.pool.get(pgc['pgc'], None)
+
+
+def _pGC_fitness(pgc, delta_fitness, depth):
+    """Update the fitness of the pGC.
+
+    pgc is modified.
+    -1.0 <= delta_fitness <= 1.0
+
+    Args
+    ----
+    pgc (pGC): pGC to update.
+    delta_fitness (float): The change in fitness of the GC pGC mutated.
+    depth (int): The layer in the environment pgc is at.
+
+    Returns
+    -------
+    delta (float): Change in fitness of the pGC -1.0 <= delta_fitness <= 1.0
+    """
+    pgc['if'] = 0.0 if delta_fitness < 0 else delta_fitness
+    old_count = pgc['f_count'][depth]
+    delta = pgc['if'] - pgc['fitness'][depth]
+    pgc['f_count'][depth] += 1
+    pgc['fitness'][depth] = (old_count * pgc['fitness'][depth] + pgc['if']) / pgc['f_count'][depth]
+    return delta
+
+
+def xGC_evolvability(xgc, delta_fitness, depth):
+    """Update the evolvability of any type of GC.
+
+    xgc is modified.
+    -1.0 <= delta_fitness <= 1.0
+
+    Args
+    ----
+    xgc (pGC): xGC to update.
+    delta_fitness (float): Difference in fitness between this GC & its offspring.
+    depth (int): The layer in the environment pgc is at.
+    """
+    increase = 0.0 if delta_fitness < 0 else delta_fitness
+    old_count = xgc['e_count'][depth]
+    xgc['e_count'][depth] += 1
+    xgc['evolvability'][depth] = (old_count * xgc['evolvability'][depth] + increase) / xgc['e_count'][depth]
+
+
+def evolve_physical(gp, pgc, depth):
+    """Evolve the pgc as needed.
+
+    pgc is checked to see if it meets evolution criteria. If it does
+    it is evolved & the gene pool updated with it offspring.
+
+    PGC's evolve when they have been 'used' M_CONSTANT times (which must)
+    be a positive integer power of 2. The number of uses is persisted in
+    all scopes.
+
+    Args
+    ----
+    gp (gene_pool): The gene pool containing pgc.
+    pgc (pGC): The pgc to evolve as necessary.
+    depth (int): The layer in the environment pgc is at.
+
+    PGC's evolve when they have been 'used' M_CONSTANT times (which must)
+    be a positive integer power of 2. The number of uses is persisted in
+    all scopes.
+    """
+    if not (pgc['f_count'][depth] & M_MASK):
+        ppgc = select_pGC(gp, pgc, depth)
+        offspring = ppgc.exec((pgc,))
+        xGC_inherit(offspring, pgc, ppgc)
+        cull_physical(gp, depth)
+        return True
+    return False
+
+
+def cull_physical(gp, depth):
+    """Remove one pGC in layer depth.
+
+    Note that the pGC is not deleted if it is present in other layers,
+    its fitness and f_count for the layer are just set to 0.
+
+    Args
+    ----
+    gp (gene_pool): The gene pool containing xgc.
+    depth (int): The layer in the environment to select a victim from.
+    """
+    num_layers = depth + 1
+    func = lambda x: len(x['f_count']) >= num_layers and x['f_count'][depth]
+
+    # OPTIMIZATION: Weights & filtered_pool could be cached for a depth?
+    filtered_pool = tuple(filter(func, gp.pool.values()))
+    weights = array([1.0 - i['fitness'][depth] for i in filtered_pool], float32)
+    weights /= sum(weights)
+    victim = choice(filtered_pool, None, False, weights)
+    victim['fitness'][depth] = 0.0
+    victim[''] #### Layer valid!
+
+def create_layer(gp):
+    """Create a new physical GC layer.
+
+    Creation means the depth of the environment increases by adding a
+    new top layer of pGC's.
+
+    NOTE: Only pGC's can exist in layers > 0
+    """
+    num_layers = gp.max_depth + 1
+    for pgc in filter(lambda x: len(x['f_count']) == num_layers, gp.pool.values()):
+        for col in LAYER_COLUMNS:
+            pgc[col].append(pgc[col][-1])
+        for col, value in LAYER_COLUMNS_RESET.items():
+            pgc[col] = value
+    gp.max_depth += 1
+
+
+def select_pGC(gp, xgc, depth):
+    """Select a pgc to evolve xgc.
+
+    A pgc is found from layer depth + 1.
+    If layer depth + 1 does not exist then it is created.
+
+    Args
+    ----
+    gp (gene_pool): The gene pool containing xgc.
+    xgc (xGC): The GC to find a pgc for.
+    depth (int): The layer in the environment xgc is at.
+
+    Returns
+    -------
+    pgc (pGC): A pGC to evolve xgc.
+    """
+    if depth == gp.max_depth:
+        create_layer(gp)
+
+    # TODO: More sophisticated selection algorithm
+    # This one picks a pGC randomly weighted by fitness.
+    num_layers = depth + 2
+    next_layer = depth + 1
+    func = lambda x: len(x['f_count']) >= num_layers and x['f_count'][next_layer]
+
+    # OPTIMIZATION: Weights & filtered_pool could be cached for a depth?
+    filtered_pool = tuple(filter(func, gp.pool.values()))
+    weights = array([1.0 - i['if'][next_layer] for i in filtered_pool], float32)
+    weights /= sum(weights)
+    return choice(filtered_pool, None, False, weights)
+
+
+def xGC_inherit(child, parent, pgc):
+    pass

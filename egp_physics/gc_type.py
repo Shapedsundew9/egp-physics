@@ -38,6 +38,44 @@ _DEFINABLE_MD = ":large_blue_circle:"
 _REQUIRED_MD = ":black_circle:"
 
 
+# Evolve a pGC after this many 'uses'.
+# MUST be a power of 2
+M_CONSTANT = 1 << 3
+M_MASK = M_CONSTANT - 1
+
+
+# FIXME: This is duplicated in egp_physics.gc_type. Consider creating a seperate module of
+# field definitions.
+# PROPERTIES must define the bit position of all the properties listed in
+# the "properties" field of the entry_format.json definition.
+PROPERTIES = {
+    "extended": 1 << 0,
+    "constant": 1 << 1,
+    "conditional": 1 << 2,
+    "deterministic": 1 << 3,
+    "memory_modify": 1 << 4,
+    "object_modify": 1 << 5,
+    "physical": 1 << 6,
+    "arithmetic": 1 << 16,
+    "logical": 1 << 17,
+    "bitwise": 1 << 18,
+    "boolean": 1 << 19,
+    "sequence": 1 << 20
+}
+PHYSICAL_PROPERTY = PROPERTIES['physical']
+LAYER_COLUMNS = (
+    "evolvability",
+    "fitness",
+    "e_count",
+    "f_count",
+    "if"
+)
+LAYER_COLUMNS_RESET = {
+    "e_count": 1,
+    "f_count": 1
+}
+
+
 def _get_schema(t):
     """Logic for extracting the specific GC type schema from the general GC schema.
 
@@ -256,6 +294,7 @@ class gGC(_GC):
         self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
         self.setdefault('igraph', gc_graph(self.get('graph', {})))
         self.setdefault('exec', None)
+        self.setdefault('evolved', [True])
         if 'inputs' not in self:
             inputs = self['igraph'].input_if()
             outputs = self['igraph'].output_if()
@@ -264,6 +303,12 @@ class gGC(_GC):
             self['interface'] = interface_hash(inputs, outputs)
         for col in filter(lambda x: x[1:] in gc.keys(), gGC.higher_layer_cols):
             gc[col] = copy(gc[col[1:]])
+        # Clear target layer fitness.
+        # Target layer fitness is fitness function specific (so whatever was in the genomic
+        # library was likely not related)
+        if not (gc['properties'] & PROPERTIES['physical']) and 'fitness' in gc:
+            gc['f_count'][0] = 0
+            gc['fitness'][0] = 0.0
         if not sv:
             self.validate()
 
