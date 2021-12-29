@@ -739,6 +739,8 @@ def pGC_fitness(gp, pgc, delta_fitness):
     pgc is modified.
     -1.0 <= delta_fitness <= 1.0
 
+    pGC's are checked for evolution
+
     Args
     ----
     gp (gene_pool): The gene_pool that contains pGC and its creators.
@@ -746,13 +748,15 @@ def pGC_fitness(gp, pgc, delta_fitness):
     delta_fitness (float): The change in fitness of the GC pGC mutated.
     """
     depth = 1
-    delta_fitness = _pGC_fitness(pgc, delta_fitness, depth)
+    _pGC_fitness(pgc, delta_fitness, depth)
+    delta_fitness = pgc['delta_fitness'][depth]
     evolved = evolve_physical(gp, pgc, depth)
     pgc = gp.pool.get(pgc['pgc'], None)
     while evolved and pgc is not None:
         depth += 1
         xGC_evolvability(pgc, delta_fitness, depth)
-        delta_fitness = _pGC_fitness(pgc, delta_fitness, depth)
+        _pGC_fitness(pgc, delta_fitness, depth)
+        delta_fitness = pgc['delta_fitness'][depth]
         evolved = evolve_physical(gp, pgc, depth)
         pgc = gp.pool.get(pgc['pgc'], None)
 
@@ -768,17 +772,12 @@ def _pGC_fitness(pgc, delta_fitness, depth):
     pgc (pGC): pGC to update.
     delta_fitness (float): The change in fitness of the GC pGC mutated.
     depth (int): The layer in the environment pgc is at.
-
-    Returns
-    -------
-    delta (float): Change in fitness of the pGC -1.0 <= delta_fitness <= 1.0
     """
     pgc['if'] = 0.0 if delta_fitness < 0 else delta_fitness
     old_count = pgc['f_count'][depth]
-    delta = pgc['if'] - pgc['fitness'][depth]
+    pgc['delta_fitness'][depth] += pgc['if'] - pgc['fitness'][depth]
     pgc['f_count'][depth] += 1
     pgc['fitness'][depth] = (old_count * pgc['fitness'][depth] + pgc['if']) / pgc['f_count'][depth]
-    return delta
 
 
 def xGC_evolvability(xgc, delta_fitness, depth):
@@ -805,8 +804,8 @@ def evolve_physical(gp, pgc, depth):
     pgc is checked to see if it meets evolution criteria. If it does
     it is evolved & the gene pool updated with it offspring.
 
-    PGC's evolve when they have been 'used' M_CONSTANT times (which must)
-    be a positive integer power of 2. The number of uses is persisted in
+    PGC's evolve when they have been 'used' M_CONSTANT times (which must
+    be a positive integer power of 2). The number of uses is persisted in
     all scopes.
 
     Args
@@ -815,11 +814,13 @@ def evolve_physical(gp, pgc, depth):
     pgc (pGC): The pgc to evolve as necessary.
     depth (int): The layer in the environment pgc is at.
 
-    PGC's evolve when they have been 'used' M_CONSTANT times (which must)
-    be a positive integer power of 2. The number of uses is persisted in
-    all scopes.
+    Returns
+    -------
+    (bool): True if the pGC was evolved else False
     """
     if not (pgc['f_count'][depth] & M_MASK):
+        pgc['delta_fitness'][depth] = 0.0
+        gp.layer_evolutions[depth] += 1
         ppgc = select_pGC(gp, pgc, depth)
         offspring = ppgc.exec((pgc,))
         xGC_inherit(offspring, pgc, ppgc)
@@ -848,7 +849,8 @@ def cull_physical(gp, depth):
     weights /= sum(weights)
     victim = choice(filtered_pool, None, False, weights)
     victim['fitness'][depth] = 0.0
-    victim[''] #### Layer valid!
+    victim['f_count'][depth] = 0 #### Layer valid!
+
 
 def create_layer(gp):
     """Create a new physical GC layer.
@@ -858,13 +860,13 @@ def create_layer(gp):
 
     NOTE: Only pGC's can exist in layers > 0
     """
-    num_layers = gp.max_depth + 1
-    for pgc in filter(lambda x: len(x['f_count']) == num_layers, gp.pool.values()):
+    for pgc in filter(lambda x: len(x['f_count']) == gp.num_layers, gp.pool.values()):
         for col in LAYER_COLUMNS:
             pgc[col].append(pgc[col][-1])
         for col, value in LAYER_COLUMNS_RESET.items():
             pgc[col] = value
-    gp.max_depth += 1
+    gp.num_layers += 1
+    gp.layer_evolutions.append(0)
 
 
 def select_pGC(gp, xgc, depth):
@@ -883,7 +885,7 @@ def select_pGC(gp, xgc, depth):
     -------
     pgc (pGC): A pGC to evolve xgc.
     """
-    if depth == gp.max_depth:
+    if depth == gp.num_layers:
         create_layer(gp)
 
     # TODO: More sophisticated selection algorithm
@@ -900,4 +902,26 @@ def select_pGC(gp, xgc, depth):
 
 
 def xGC_inherit(child, parent, pgc):
-    pass
+    """Inherit some properties from parent to child.
+
+    child is modified.
+    parent is modified.
+
+    Args
+    ----
+    child (xGC): Offspring of parent and pgc.
+    parent (xGC): Parent of child.
+    pgc (pGC): pGC that operated on parent to product child.
+    """
+    child['fitness'] = copy(parent['fitness'])
+    for f_count in parent['f_count']:
+        child['f_count'] = 1 if f_count else 0
+    child['evolvability'] = copy(parent['evolvability'])
+    for f_count in parent['e_count']:
+        child['e_count'] = 1 if f_count else 0
+
+    child['ancestor_a_ref'] = parent['ref']
+    child['pgc_ref'] = pgc['ref']
+    child['generation'] = parent['generation'] + 1
+
+    parent['offspring_count'] += 1
