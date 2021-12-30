@@ -824,7 +824,6 @@ def evolve_physical(gp, pgc, depth):
         ppgc = select_pGC(gp, pgc, depth)
         offspring = ppgc.exec((pgc,))
         xGC_inherit(offspring, pgc, ppgc)
-        cull_physical(gp, depth)
         return True
     return False
 
@@ -843,7 +842,6 @@ def cull_physical(gp, depth):
     num_layers = depth + 1
     func = lambda x: len(x['f_count']) >= num_layers and x['f_count'][depth]
 
-    # OPTIMIZATION: Weights & filtered_pool could be cached for a depth?
     filtered_pool = tuple(filter(func, gp.pool.values()))
     weights = array([1.0 - i['fitness'][depth] for i in filtered_pool], float32)
     weights /= sum(weights)
@@ -920,6 +918,7 @@ def xGC_inherit(child, parent, pgc):
     for f_count in parent['e_count']:
         child['e_count'] = 1 if f_count else 0
 
+    child['population'] = parent['population']
     child['ancestor_a_ref'] = parent['ref']
     child['pgc_ref'] = pgc['ref']
     child['generation'] = parent['generation'] + 1

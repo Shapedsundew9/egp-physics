@@ -215,7 +215,7 @@ def asstr(obj, vt=vtype.EP_TYPE_INT):
     Args
     ----
     object (object): See description above.
-    vt (vtype): The interpretation of the object. See vtype definition.:
+    vt (vtype): The interpretation of the object. See vtype definition.
 
 
     Returns
