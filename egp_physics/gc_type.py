@@ -129,6 +129,11 @@ def interface_definition(xputs, vt=vtype.TYPE_OBJECT):
 def interface_hash(input_eps, output_eps):
     """Create a 64-bit hash of the population interface definition.
 
+    The interface hash is order agnostic i.e.
+
+    (float, int, float) has the same hash as (float, float, int) has
+    the same hash as (int, float, float).
+
     Args
     ----
     input_eps (iterable(int)): Iterable of input EP types.
@@ -139,9 +144,9 @@ def interface_hash(input_eps, output_eps):
     (int): 64 bit hash as a signed 64 bit int.
     """
     h = blake2b(digest_size=8)
-    for i in input_eps:
+    for i in sorted(input_eps):
         h.update(i.to_bytes(2, 'big'))
-    for o in output_eps:
+    for o in sorted(output_eps):
         h.update(o.to_bytes(2, 'big'))
     a = int.from_bytes(h.digest(), 'big')
     return (0x7FFFFFFFFFFFFFFF & a) - (a & (1 << 63))
