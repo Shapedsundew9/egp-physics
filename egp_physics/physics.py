@@ -51,6 +51,7 @@ _INITIAL_GC_SQL = ('WHERE {input_types} = {itypes} AND {inputs} = {iidx} '
                    'AND {output_types} = {otypes} AND {outputs} = {oidx} '
                    'AND NOT ({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT {limit}')
 
+RANDOM_PGC_SIGNATURE = b'00000000000000000000000000000000'
 
 def _copy_row(igc, rows, ep_type=None):
     """Copy the internal format definition of a row.
@@ -828,26 +829,25 @@ def evolve_physical(gp, pgc, depth):
     return False
 
 
-def cull_physical(gp, depth):
-    """Remove one pGC in layer depth.
+def cull_physical(pgc_iter, layer):
+    """Remove one pGC in layer .
 
     Note that the pGC is not deleted if it is present in other layers,
-    its fitness and f_count for the layer are just set to 0.
+    its f_count for the layer are just set to 0.
 
     Args
     ----
-    gp (gene_pool): The gene pool containing xgc.
+    pgc_iter iter(dict): pGC's to consider. Dict must have:
+        'f_count'
+        'fitness'
     depth (int): The layer in the environment to select a victim from.
     """
-    num_layers = depth + 1
-    func = lambda x: len(x['f_count']) >= num_layers and x['f_count'][depth]
-
-    filtered_pool = tuple(filter(func, gp.pool.values()))
-    weights = array([1.0 - i['fitness'][depth] for i in filtered_pool], float32)
+    func = lambda x: x['f_count'][layer]
+    filtered_pool = tuple(filter(func, pgc_iter))
+    weights = array([1.0 - i['fitness'][layer] for i in filtered_pool], float32)
     weights /= sum(weights)
     victim = choice(filtered_pool, None, False, weights)
-    victim['fitness'][depth] = 0.0
-    victim['f_count'][depth] = 0 #### Layer valid!
+    victim['f_count'][layer] = 0 #### Layer valid!
 
 
 def create_layer(gp):
@@ -858,11 +858,11 @@ def create_layer(gp):
 
     NOTE: Only pGC's can exist in layers > 0
     """
-    for pgc in filter(lambda x: len(x['f_count']) == gp.num_layers, gp.pool.values()):
+    for pgc in filter(lambda x: x['properties'] & PHYSICAL_PROPERTY, gp.pool.values()):
         for col in LAYER_COLUMNS:
             pgc[col].append(pgc[col][-1])
         for col, value in LAYER_COLUMNS_RESET.items():
-            pgc[col] = value
+            pgc[col][-1] = value if pgc[col][-2] else 0
     gp.num_layers += 1
     gp.layer_evolutions.append(0)
 
@@ -888,9 +888,8 @@ def select_pGC(gp, xgc, depth):
 
     # TODO: More sophisticated selection algorithm
     # This one picks a pGC randomly weighted by fitness.
-    num_layers = depth + 2
     next_layer = depth + 1
-    func = lambda x: len(x['f_count']) >= num_layers and x['f_count'][next_layer]
+    func = lambda x: x['f_count'][next_layer]
 
     # OPTIMIZATION: Weights & filtered_pool could be cached for a depth?
     filtered_pool = tuple(filter(func, gp.pool.values()))
