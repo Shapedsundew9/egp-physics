@@ -833,21 +833,21 @@ def cull_physical(pgc_iter, layer):
     """Remove one pGC in layer .
 
     Note that the pGC is not deleted if it is present in other layers,
-    its f_count for the layer are just set to 0.
+    its f_valid for the layer are just set to False.
 
     Args
     ----
     pgc_iter iter(dict): pGC's to consider. Dict must have:
-        'f_count'
+        'f_valid'
         'fitness'
     depth (int): The layer in the environment to select a victim from.
     """
-    func = lambda x: x['f_count'][layer]
+    func = lambda x: x['f_valid'][layer]
     filtered_pool = tuple(filter(func, pgc_iter))
     weights = array([1.0 - i['fitness'][layer] for i in filtered_pool], float32)
     weights /= sum(weights)
     victim = choice(filtered_pool, None, False, weights)
-    victim['f_count'][layer] = 0 #### Layer valid!
+    victim['f_valid'][layer] = False
 
 
 def create_layer(gp):
@@ -889,7 +889,7 @@ def select_pGC(gp, xgc, depth):
     # TODO: More sophisticated selection algorithm
     # This one picks a pGC randomly weighted by fitness.
     next_layer = depth + 1
-    func = lambda x: x['f_count'][next_layer]
+    func = lambda x: x['f_valid'][next_layer]
 
     # OPTIMIZATION: Weights & filtered_pool could be cached for a depth?
     filtered_pool = tuple(filter(func, gp.pool.values()))
@@ -911,11 +911,11 @@ def xGC_inherit(child, parent, pgc):
     pgc (pGC): pGC that operated on parent to product child.
     """
     child['fitness'] = copy(parent['fitness'])
-    for f_count in parent['f_count']:
-        child['f_count'] = 1 if f_count else 0
+    for f_valid in parent['f_valid']:
+        child['f_count'] = 1 if f_valid else 0
     child['evolvability'] = copy(parent['evolvability'])
-    for f_count in parent['e_count']:
-        child['e_count'] = 1 if f_count else 0
+    for f_valid in parent['f_valid']:
+        child['e_count'] = 1 if f_valid else 0
 
     child['population'] = parent['population']
     child['ancestor_a_ref'] = parent['ref']

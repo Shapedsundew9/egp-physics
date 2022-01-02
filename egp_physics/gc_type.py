@@ -293,7 +293,6 @@ class gGC(_GC):
         self.setdefault('modified', modified)
         self.setdefault('population', population)
         self.setdefault('pgc_ref', self._ref_from_sig('pgc'))
-        self.setdefault('ancestor_a_ref', self._ref_from_sig('ancestor_b'))
         self.setdefault('ancestor_b_ref', self._ref_from_sig('ancestor_a'))
         self.setdefault('gca_ref', self._ref_from_sig('gca'))
         self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
