@@ -18,9 +18,11 @@ checks see the relevant collections e.g. genomic_library, gene_pool
 
 from copy import copy, deepcopy
 from hashlib import blake2b
+from functools import partial
 
 from .ep_type import asint, vtype
 from .gc_graph import gc_graph
+from .execution import lazy_exec
 from .generic_validator import SCHEMA, generic_validator, random_reference
 
 # GC types
@@ -297,7 +299,7 @@ class gGC(_GC):
         self.setdefault('gca_ref', self._ref_from_sig('gca'))
         self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
         self.setdefault('igraph', gc_graph(self.get('graph', {})))
-        self.setdefault('exec', None)
+        self.setdefault('exec', partial(lazy_exec, gc=self))
         self.setdefault('evolved', [True])
         if 'inputs' not in self:
             inputs = self['igraph'].input_if()
