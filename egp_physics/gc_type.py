@@ -312,7 +312,7 @@ class gGC(_GC):
         # Clear target layer fitness.
         # Target layer fitness is fitness function specific (so whatever was in the genomic
         # library was likely not related)
-        if not (gc['properties'] & PROPERTIES['physical']) and 'fitness' in gc:
+        if not (gc.get('properties',0) & PROPERTIES['physical']) and 'fitness' in gc:
             gc['f_count'][0] = 0
             gc['fitness'][0] = 0.0
         if not sv:
