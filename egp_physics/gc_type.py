@@ -18,12 +18,16 @@ checks see the relevant collections e.g. genomic_library, gene_pool
 
 from copy import copy, deepcopy
 from hashlib import blake2b
-from functools import partial
+from logging import DEBUG, NullHandler, getLogger
 
 from .ep_type import asint, vtype
 from .gc_graph import gc_graph
-from .execution import lazy_exec
+from .execution import create_callable, exec_wrapper
 from .generic_validator import SCHEMA, generic_validator, random_reference
+
+_logger = getLogger(__name__)
+_logger.addHandler(NullHandler())
+_LOG_DEBUG = _logger.isEnabledFor(DEBUG)
 
 # GC types
 __GC = '_'
@@ -32,6 +36,7 @@ _PGC = 'p'
 _AGC = 'a'
 _XGC = 'x'
 _MGC = 'm'
+_NGC = 'n'
 _GGC = 'g'
 
 
@@ -42,8 +47,14 @@ _REQUIRED_MD = ":black_circle:"
 
 # Evolve a pGC after this many 'uses'.
 # MUST be a power of 2
-M_CONSTANT = 1 << 3
+M_CONSTANT = 1 << 4
 M_MASK = M_CONSTANT - 1
+NUM_PGC_LAYERS = 16
+# With M_CONSTANT = 16 & NUM_PGC_LAYERS = 16 it will take 16**16 (== 2**64 == 18446744073709551616)
+# population individual evolutions to require a 17th layer (and that is assuming all PGC's are
+# children of the one in the 16th layer). Thats about 5.8 billion evolutions per second for
+# 100 years. A million super fast cores doing 5.8 million per second...only an outside chance
+# of hitting the limit if Erasmus becomes a global phenomenon and is not rewritten! Sensibly future proofed.
 
 
 # FIXME: This is duplicated in egp_physics.gc_type. Consider creating a seperate module of
@@ -154,6 +165,44 @@ def interface_hash(input_eps, output_eps):
     return (0x7FFFFFFFFFFFFFFF & a) - (a & (1 << 63))
 
 
+def ref_from_sig(sig):
+    """Create a reference from a signature.
+
+    Args
+    ----
+    sig (bytes): GC signature bytes object
+
+    Returns
+    -------
+    (int): A 64 bit reference.
+    """
+    a = int.from_bytes(sig[:8], 'little')
+    return (0x7FFFFFFFFFFFFFFF & a) - (a & (1 << 63))
+
+
+def is_pgc(gc):
+    """Determine if a GC is a PGC.
+
+    Args
+    ----
+    gc(dict-like): A GC dict-like object.
+
+    Returns
+    -------
+    (bool): True if gc is a pGC else False
+    """
+    if _LOG_DEBUG:
+        # More juicy test for consistency
+        it = gc.get('input_types', [])
+        i = gc.get('inputs', [])
+        ot = gc.get('output_types', [])
+        o = gc.get('outputs', [])
+        pgc_inputs = it and it[0] == asint('egp_physics.gc_type_gGC') and len(i) == 1
+        pgc_outputs = ot and ot[0] == asint('egp_physics.gc_type_gGC') and len(o) == 1
+        assert pgc_inputs and pgc_outputs == gc.get('pgc_fitness', None) is None
+    return gc.get('pgc_fitness', None) is None
+
+
 class _GC(dict):
     """Abstract base class for genetic code (GC) types.
 
@@ -175,8 +224,7 @@ class _GC(dict):
                 return random_reference()
             return None
         elif self[s] is not None:
-            a = int.from_bytes(self[s][:8], 'little')
-            return (0x7FFFFFFFFFFFFFFF & a) - (a & (1 << 63))
+            return ref_from_sig(self[s])
         return None
 
     def validate(self):
@@ -195,9 +243,10 @@ class eGC(_GC):
 
     validator = generic_validator(_get_schema(_EGC), allow_unknown=True)
 
-    def __init__(self, gc={}, inputs=None, outputs=None, vt=vtype.OBJECT, sv=True):
+    def __init__(self, gc=None, inputs=None, outputs=None, vt=vtype.OBJECT, sv=True):
         """Construct.
 
+        NOTE: gc will be modified
         Args
         ----
         gc (a _GC dervived object): GC to ensure is eGC compliant.
@@ -206,8 +255,14 @@ class eGC(_GC):
         vt (vtype): The interpretation of the object. See vtype definition.
         sv (bool): Suppress validation. If True the eGC will not be validated on construction.
         """
-        # TODO: Consider lazy loading fields
-        super().__init__(gc)
+        # Make sure only the fields that are needed are copied.
+        # TODO: This needs cleaning up.
+        _gc = {}
+        if gc is not None:
+            for field in ('graph', 'igraph', 'gca', 'gcb', 'gca_ref', 'gcb_ref', 'inputs', 'input_types', 'outputs', 'output_types'):
+                if field in gc: _gc[field] = gc[field]
+        super().__init__(_gc)
+
         if inputs is not None:
             graph_inputs, self['input_types'], self['inputs'] = interface_definition(inputs, vt)
         else:
@@ -233,7 +288,6 @@ class eGC(_GC):
         elif 'graph' not in self:
             self['graph'] = self['igraph'].application_graph()
 
-        self['interface'] = interface_hash(graph_inputs, graph_outputs)
         if not sv:
             self.validate()
 
@@ -251,7 +305,7 @@ class mGC(_GC):
         """Construct.
 
         gc combined with igraph must be in a steady state.
-        if gc['igraph] exists igraph will be ignored.
+        if gc['igraph'] exists igraph will be ignored.
 
         Args
         ----
@@ -282,8 +336,10 @@ class gGC(_GC):
     validator = generic_validator(_get_schema(_GGC), allow_unknown=True)
     higher_layer_cols = tuple((col for col in filter(lambda x: x[0] == '_', validator.schema.keys())))
 
-    def __init__(self, gc={}, interface=None, modified=False, population=None, sv=True):
+    def __init__(self, gc={}, modified=True, population=None, sv=True):
         """Construct.
+
+        Ensure all fields are defined as required for the Gene Pool.
 
         Args
         ----
@@ -291,32 +347,42 @@ class gGC(_GC):
         sv (bool): Suppress validation. If True the eGC will not be validated on construction.
         """
         # TODO: Consider lazy loading fields
-        super().__init__(gc)
-        self.setdefault('modified', modified)
-        self.setdefault('population', population)
-        self.setdefault('pgc_ref', self._ref_from_sig('pgc'))
-        self.setdefault('ancestor_b_ref', self._ref_from_sig('ancestor_a'))
-        self.setdefault('gca_ref', self._ref_from_sig('gca'))
-        self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
-        self.setdefault('igraph', gc_graph(self.get('graph', {})))
-        self.setdefault('exec', partial(lazy_exec, gc=self))
-        self.setdefault('evolved', [True])
-        if 'inputs' not in self:
-            inputs = self['igraph'].input_if()
-            outputs = self['igraph'].output_if()
-            _, self['input_types'], self['inputs'] = interface_definition(inputs, vtype.EP_TYPE_INT)
-            _, self['output_types'], self['outputs'] = interface_definition(outputs, vtype.EP_TYPE_INT)
-            self['interface'] = interface_hash(inputs, outputs)
-        for col in filter(lambda x: x[1:] in gc.keys(), gGC.higher_layer_cols):
-            gc[col] = copy(gc[col[1:]])
-        # Clear target layer fitness.
-        # Target layer fitness is fitness function specific (so whatever was in the genomic
-        # library was likely not related)
-        if not (gc.get('properties',0) & PROPERTIES['physical']) and 'fitness' in gc:
-            gc['f_count'][0] = 0
-            gc['fitness'][0] = 0.0
-        if not sv:
-            self.validate()
+        if isinstance(gc, gGC):
+            self = gc
+        else:
+            super().__init__(gc)
+            self.setdefault('modified', modified)
+            self.setdefault('population', population)
+            self.setdefault('pgc_ref', self._ref_from_sig('pgc'))
+            self.setdefault('ancestor_a_ref', self._ref_from_sig('ancestor_a'))
+            self.setdefault('gca_ref', self._ref_from_sig('gca'))
+            self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
+            self.setdefault('igraph', gc_graph(self.get('graph', {})))
+            self.setdefault('evolved', [True])
+            if 'inputs' not in self:
+                inputs = self['igraph'].input_if()
+                outputs = self['igraph'].output_if()
+                _, self['input_types'], self['inputs'] = interface_definition(inputs, vtype.EP_TYPE_INT)
+                _, self['output_types'], self['outputs'] = interface_definition(outputs, vtype.EP_TYPE_INT)
+
+            # Every GC must have the callable created but only individuals get a wrapped version
+            self.setdefault('exec', create_callable(self))
+            if population:
+                self['exec'] = exec_wrapper(self['exec'])
+            for col in filter(lambda x: x[1:] in gc.keys(), gGC.higher_layer_cols):
+                gc[col] = copy(gc[col[1:]])
+
+            # PGCs have special fields in the Gene Pool
+            if is_pgc(self) and 'pgc_f_valid' not in self:
+                self['pgc_delta_fitness'] = [0.0] * NUM_PGC_LAYERS
+                self['pgc_previous_fitness'] = copy(self['pgc_fitness'])
+                self['pgc_f_valid'] = [f > 0.0 for f in self['pgc_fitness']]
+            else:
+                self.setdefault('fitness', 0.0)
+                self.setdefault('survivability', 0.0)
+
+            if not sv:
+                self.validate()
 
 
 def _md_string(gct, key):

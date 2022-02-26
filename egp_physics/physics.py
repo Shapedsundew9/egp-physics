@@ -4,11 +4,12 @@ from logging import DEBUG, NullHandler, getLogger
 from pprint import pformat
 from random import randint, choice
 from numpy import array, float32
+from numpy.random import choice as np_choice
 
 from .ep_type import vtype
 from .gc_graph import (DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref,
                        ref_idx)
-from .gc_type import eGC, interface_definition, mGC, M_MASK, PHYSICAL_PROPERTY, LAYER_COLUMNS, LAYER_COLUMNS_RESET
+from .gc_type import M_CONSTANT, eGC, interface_definition, gGC, mGC, M_MASK, PHYSICAL_PROPERTY, LAYER_COLUMNS, LAYER_COLUMNS_RESET
 from .utils.reference import random_reference
 
 _logger = getLogger(__name__)
@@ -20,17 +21,17 @@ _LOG_DEBUG = _logger.isEnabledFor(DEBUG)
 _EXCLUSION_LIMIT =  ' AND NOT ({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT 1'
 
 # FIXME: Replace with a localisation hash
-_MATCH_TYPE_0_SQL = ('WHERE {input_types} = {itypes} AND {inputs} = {iidx} AND {output_types} = {otypes} AND {outputs} = {oidx}'
+_MATCH_TYPE_0_SQL = ('WHERE {input_types} = {itypes}::SMALLINT[] AND {inputs} = {iidx} AND {output_types} = {otypes}::SMALLINT[] AND {outputs} = {oidx}'
                      + _EXCLUSION_LIMIT)
-_MATCH_TYPE_1_SQL = 'WHERE {input_types} = {itypes} AND {output_types} = {otypes} AND {outputs} = {oidx}' + _EXCLUSION_LIMIT
-_MATCH_TYPE_2_SQL = 'WHERE {input_types} = {itypes} AND {inputs} = {iidx} AND {output_types} = {otypes}' + _EXCLUSION_LIMIT
-_MATCH_TYPE_3_SQL = 'WHERE {input_types} = {itypes} AND {output_types} = {otypes}' + _EXCLUSION_LIMIT
-_MATCH_TYPE_4_SQL = 'WHERE {input_types} <@ {itypes} AND {output_types} = {otypes}' + _EXCLUSION_LIMIT
-_MATCH_TYPE_5_SQL = 'WHERE {input_types} <@ {itypes} AND {output_types} @> {otypes}' + _EXCLUSION_LIMIT
-_MATCH_TYPE_6_SQL = 'WHERE {input_types} <@ {itypes} AND {output_types} && {otypes}' + _EXCLUSION_LIMIT
-_MATCH_TYPE_7_SQL = 'WHERE {input_types} && {itypes} AND {output_types} && {otypes}' + _EXCLUSION_LIMIT
-_MATCH_TYPE_8_SQL = 'WHERE {output_types} && {otypes} ' + _EXCLUSION_LIMIT
-_MATCH_TYPE_9_SQL = 'WHERE {input_types} && {itypes} ' + _EXCLUSION_LIMIT
+_MATCH_TYPE_1_SQL = 'WHERE {input_types} = {itypes}::SMALLINT[] AND {output_types} = {otypes}::SMALLINT[] AND {outputs} = {oidx}' + _EXCLUSION_LIMIT
+_MATCH_TYPE_2_SQL = 'WHERE {input_types} = {itypes}::SMALLINT[] AND {inputs} = {iidx} AND {output_types} = {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
+_MATCH_TYPE_3_SQL = 'WHERE {input_types} = {itypes}::SMALLINT[] AND {output_types} = {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
+_MATCH_TYPE_4_SQL = 'WHERE {input_types} <@ {itypes}::SMALLINT[] AND {output_types} = {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
+_MATCH_TYPE_5_SQL = 'WHERE {input_types} <@ {itypes}::SMALLINT[] AND {output_types} @> {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
+_MATCH_TYPE_6_SQL = 'WHERE {input_types} <@ {itypes}::SMALLINT[] AND {output_types} && {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
+_MATCH_TYPE_7_SQL = 'WHERE {input_types} && {itypes}::SMALLINT[] AND {output_types} && {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
+_MATCH_TYPE_8_SQL = 'WHERE {output_types} && {otypes}::SMALLINT[] ' + _EXCLUSION_LIMIT
+_MATCH_TYPE_9_SQL = 'WHERE {input_types} && {itypes}::SMALLINT[] ' + _EXCLUSION_LIMIT
 _MATCH_TYPES_SQL = (
     _MATCH_TYPE_0_SQL,
     _MATCH_TYPE_1_SQL,
@@ -46,12 +47,11 @@ _MATCH_TYPES_SQL = (
 _NUM_MATCH_TYPES = len(_MATCH_TYPES_SQL)
 
 
-# Initial GC query
-_INITIAL_GC_SQL = ('WHERE {input_types} = {itypes} AND {inputs} = {iidx} '
-                   'AND {output_types} = {otypes} AND {outputs} = {oidx} '
-                   'AND NOT ({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT {limit}')
+# PGC Constants
+RANDOM_PGC_SIGNATURE = b'\x00'*32
+_PGC_PARENTAL_PROTECTION_FACTOR = 0.75
+_POPULATION_PARENTAL_PROTECTION_FACTOR = 0.75
 
-RANDOM_PGC_SIGNATURE = b'00000000000000000000000000000000'
 
 def _copy_row(igc, rows, ep_type=None):
     """Copy the internal format definition of a row.
@@ -364,7 +364,7 @@ def _insert(igc_gcg, tgc_gcg, above_row):  # noqa: C901
     return rgc_graph, fgc_graph
 
 
-def gc_insert(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
+def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
     """Insert insert_gc into target_gc above row 'above_row'.
 
     If insert_gc is None then the target_gc is assessed for stability. If it
@@ -394,7 +394,7 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
 
     Args
     ----
-    gp (gene_pool or genomic_library): A source of genetic material.
+    gms (gene_pool or genomic_library): A source of genetic material.
     target_gc (eGC): eGC to insert insert_gc into.
     insert_gc (eGC): eGC to insert into target_gc.
     above_row (string): One of 'A', 'B' or 'O'.
@@ -541,8 +541,34 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
     return (None, None) if work_stack else (new_tgc, fgc_dict)
 
 
-# stablise() is more understanable context than gc_insert() in some use cases.
-stablise = gc_insert
+def gc_insert(gms, target_gc, insert_gc=None, above_row=None):
+    """Insert insert_gc into target_gc above row 'above_row'.
+
+    If insert_gc is None then the target_gc is assessed for stability. If it
+    is stable then [target_gc] will be returned otherwise a steady state exception
+    is 'thrown'.
+
+    NOTE: If a steady state exception occurs for which a candidate cannot
+    be found in the GMS this function returns None.
+
+    Args
+    ----
+    gms (gene_pool or genomic_library): A source of genetic material.
+    target_gc (eGC): eGC to insert insert_gc into.
+    insert_gc (eGC): eGC to insert into target_gc.
+    above_row (string): One of 'A', 'B' or 'O'.
+
+    Returns
+    -------
+    (rgc, {ref: fgc}): List of fGC's. First FGC is the insert_gc followed by fgc's
+    created to stabilise rgc.
+    """
+    if target_gc is not None:
+        rgc, fgcs = stablize(gms, target_gc, insert_gc, above_row)
+        ggcs = [gGC(fgc, modified=True) for fgc in fgcs.values()]
+        ggcs.append(gGC(rgc, modified = True))
+        gms.add_to_gp_cache(ggcs)
+        return ggcs[-1]
 
 
 def gc_stack(gms, top_gc, bottom_gc):
@@ -568,13 +594,17 @@ def gc_stack(gms, top_gc, bottom_gc):
     -------
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
-    _gc = {'gca_ref': top_gc['ref'], 'gcb_ref': bottom_gc['ref']}
-    igraph = top_gc.stack(bottom_gc['igraph'])
-    if igraph is None: return None
-    rgc = mGC(_gc, igraph=igraph)
-    if not rgc['igraph'].normalize():
-        rgc, _ = gc_insert(gms, *steady_state_exception(rgc, gms))
-    return rgc
+    if top_gc is not None and bottom_gc is not None:
+        _gc = {'gca_ref': top_gc['ref'], 'gcb_ref': bottom_gc['ref']}
+        igraph = top_gc.stack(bottom_gc['igraph'])
+        rgc = mGC(_gc, igraph=igraph)
+        rgc['igraph'].normalize()
+        return _pgc_epilogue(gms, rgc)
+    if top_gc is not None and bottom_gc is None:
+        return top_gc
+    if top_gc is None and bottom_gc is not None:
+        return bottom_gc
+
 
 def gc_remove(gms, tgc, abpo=None):
     """Remove row A, B, P or O from tgc['graph'] to create rgc.
@@ -600,29 +630,203 @@ def gc_remove(gms, tgc, abpo=None):
     -------
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
-    rgc = {}
-    if abpo is None:
-        abpo = choice('ABPO')
-    rgc_graph = deepcopy(tgc['igraph'])
-    rgc_graph.remove_rows(abpo)
-    if abpo == 'A':
-        rgc['gca_ref'] = tgc['gcb_ref']
-        rgc['gcb_ref'] = None
-        rgc_graph.move_refs('B', 'A')
-    elif abpo == 'B':
-        rgc['gca_ref'] = tgc['gca_ref']
-        rgc['gcb_ref'] = None
-    elif abpo == 'P':
-        rgc_graph.remove_rows('F')
-    elif abpo == 'O':
-        rgc_graph.remove_rows('F')
-        rgc_graph.graph.update(_move_row(rgc_graph.graph, 'P', None, 'O', None))
-        rgc_graph.move_refs('P', 'O')
-    rgc['ref'] = random_reference()
-    if not rgc_graph.normalize():
-        rgc, _ = gc_insert(gms, *steady_state_exception(rgc, gms))
-        return rgc
-    return mGC(rgc)
+    if tgc is not None:
+        rgc = eGC(tgc)
+        if abpo is None:
+            abpo = choice('ABPO')
+        rgc_graph = rgc['igraph']
+        rgc_graph.remove_rows(abpo)
+        if abpo == 'A':
+            rgc['gca_ref'] = tgc['gcb_ref']
+            rgc['gcb_ref'] = None
+            rgc_graph.move_refs('B', 'A')
+        elif abpo == 'B':
+            rgc['gca_ref'] = tgc['gca_ref']
+            rgc['gcb_ref'] = None
+        elif abpo == 'P':
+            rgc_graph.remove_rows('F')
+        elif abpo == 'O':
+            rgc_graph.remove_rows('F')
+            rgc_graph.graph.update(_move_row(rgc_graph.graph, 'P', None, 'O', None))
+            rgc_graph.move_refs('P', 'O')
+        return _pgc_epilogue(gms, rgc)
+
+
+def _pgc_epilogue(gms, xgc):
+    """Stabilises xGC and updates the gms.
+
+    pGC's may return a single gGC or None if a valid gGC could
+    not be created. Since pGC's may be stacked each pGC must
+    be able to handle a None input.
+
+    fGC's created as a side effect of of pGC activity are
+    added to the GP local cache.
+
+    Args
+    ----
+    gms (gene_pool or genomic_library): A source of genetic material.
+    xgc (xGC): Unstable GC
+
+    Returns
+    -------
+    rgc (gGC): Resultant gGC or None
+    """
+    if not xgc is None:
+        rgc, fgcs = stablize(xgc)
+        ggcs = [gGC(fgc, modified=True) for fgc in fgcs.values()]
+        ggcs.append(gGC(rgc, modified = True))
+        gms.add_to_gp_cache(ggcs)
+        return ggcs[-1]
+
+
+def gc_remove_all_connections(gms, tgc):
+    """Remove all the connections in gc's graph.
+
+    The subsequent invalid graph is normalised and used to create rgc.
+    rgc is very likely to have an invalid graph which is
+    repaired using recursive steady state exceptions.
+
+    NOTE: If a steady state exception occurs for which a candidate cannot
+    be found in the GMS this function returns None.
+
+    Args
+    ----
+    gms (gene_pool or genomic_library): A source of genetic material.
+    tgc (xgc): Target xGC to modify.
+
+    Returns
+    -------
+    rgc (mGC): Resultant minimal GC with a valid graph or None
+    """
+    if tgc is not None:
+        egc = eGC(tgc)
+        egc['igraph'].remove_all_connection()
+        return _pgc_epilogue(gms, egc)
+
+
+def gc_add_input(gms, tgc):
+    """Add a random input to the GC.
+
+    The subsequent graph is normalised and used to create rgc.
+    If rgc has an invalid graph it is
+    repaired using recursive steady state exceptions.
+
+    NOTE: If a steady state exception occurs for which a candidate cannot
+    be found in the GMS this function returns None.
+
+    Args
+    ----
+    gms (gene_pool or genomic_library): A source of genetic material.
+    tgc (xgc): Target xGC to modify.
+
+    Returns
+    -------
+    rgc (mGC): Resultant minimal GC with a valid graph or None
+    """
+    if tgc is not None:
+        egc = eGC(tgc)
+        egc['igraph'].add_input()
+        return _pgc_epilogue(gms, egc)
+
+
+def gc_remove_input(gms, tgc):
+    """Remove a random input from the GC.
+
+    The subsequent graph is normalised and used to create rgc.
+    If rgc has an invalid graph it is
+    repaired using recursive steady state exceptions.
+
+    NOTE: If a steady state exception occurs for which a candidate cannot
+    be found in the GMS this function returns None.
+
+    Args
+    ----
+    gms (gene_pool or genomic_library): A source of genetic material.
+    tgc (xgc): Target xGC to modify.
+
+    Returns
+    -------
+    rgc (mGC): Resultant minimal GC with a valid graph or None
+    """
+    if tgc is not None:
+        egc = eGC(tgc)
+        egc['igraph'].remove_input()
+        return _pgc_epilogue(gms, egc)
+
+
+def gc_add_output(gms, tgc):
+    """Add a random output to the GC.
+
+    The subsequent graph is normalised and used to create rgc.
+    If rgc has an invalid graph it is
+    repaired using recursive steady state exceptions.
+
+    NOTE: If a steady state exception occurs for which a candidate cannot
+    be found in the GMS this function returns None.
+
+    Args
+    ----
+    gms (gene_pool or genomic_library): A source of genetic material.
+    tgc (xgc): Target xGC to modify.
+
+    Returns
+    -------
+    rgc (mGC): Resultant minimal GC with a valid graph or None
+    """
+    if tgc is not None:
+        egc = eGC(tgc)
+        egc['igraph'].add_output()
+        return _pgc_epilogue(gms, egc)
+
+
+def gc_remove_output(gms, tgc):
+    """Add a random input from the GC.
+
+    The subsequent graph is normalised and used to create rgc.
+    If rgc has an invalid graph it is
+    repaired using recursive steady state exceptions.
+
+    NOTE: If a steady state exception occurs for which a candidate cannot
+    be found in the GMS this function returns None.
+
+    Args
+    ----
+    gms (gene_pool or genomic_library): A source of genetic material.
+    tgc (xgc): Target xGC to modify.
+
+    Returns
+    -------
+    rgc (mGC): Resultant minimal GC with a valid graph or None
+    """
+    if tgc is not None:
+        egc = eGC(tgc)
+        egc['igraph'].add_output()
+        return _pgc_epilogue(gms, egc)
+
+
+def gc_remove_constant(gms, tgc):
+    """Remove a random constant from the GC.
+
+    The subsequent graph is normalised and used to create rgc.
+    If rgc has an invalid graph it is
+    repaired using recursive steady state exceptions.
+
+    NOTE: If a steady state exception occurs for which a candidate cannot
+    be found in the GMS this function returns None.
+
+    Args
+    ----
+    gms (gene_pool or genomic_library): A source of genetic material.
+    tgc (xgc): Target xGC to modify.
+
+    Returns
+    -------
+    rgc (mGC): Resultant minimal GC with a valid graph or None
+    """
+    if tgc is not None:
+        egc = eGC(tgc)
+        egc['igraph'].remove_constant()
+        return _pgc_epilogue(gms, egc)
 
 
 def proximity_select(gms, xputs):
@@ -664,8 +868,9 @@ def proximity_select(gms, xputs):
     (int, dict): (match_type, agc) or None
     """
     # TODO: Lots of short queries is inefficient. Ideas:
-    #   a) Cache queries (but this means missing out on new options)
-    #   b) Batch queries (but this is architecturally tricky)
+    #   a) Specific query support from GP local cache
+    #   b) Cache general queries (but this means missing out on new options)
+    #   c) Batch queries (but this is architecturally tricky)
     match_type = randint(0, _NUM_MATCH_TYPES - 1)
     agc = tuple(gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs))
     while not agc and match_type < _NUM_MATCH_TYPES - 1:
@@ -750,14 +955,14 @@ def pGC_fitness(gp, pgc, delta_fitness):
     """
     depth = 1
     _pGC_fitness(pgc, delta_fitness, depth)
-    delta_fitness = pgc['delta_fitness'][depth]
+    delta_fitness = pgc['pgc_delta_fitness'][depth]
     evolved = evolve_physical(gp, pgc, depth)
     pgc = gp.pool.get(pgc['pgc'], None)
     while evolved and pgc is not None:
         depth += 1
         xGC_evolvability(pgc, delta_fitness, depth)
         _pGC_fitness(pgc, delta_fitness, depth)
-        delta_fitness = pgc['delta_fitness'][depth]
+        delta_fitness = pgc['pgc_delta_fitness'][depth]
         evolved = evolve_physical(gp, pgc, depth)
         pgc = gp.pool.get(pgc['pgc'], None)
 
@@ -774,11 +979,11 @@ def _pGC_fitness(pgc, delta_fitness, depth):
     delta_fitness (float): The change in fitness of the GC pGC mutated.
     depth (int): The layer in the environment pgc is at.
     """
-    pgc['if'] = 0.0 if delta_fitness < 0 else delta_fitness
-    old_count = pgc['f_count'][depth]
-    pgc['delta_fitness'][depth] += pgc['if'] - pgc['fitness'][depth]
-    pgc['f_count'][depth] += 1
-    pgc['fitness'][depth] = (old_count * pgc['fitness'][depth] + pgc['if']) / pgc['f_count'][depth]
+    pgc['pgc_previous_fitness'][depth] = 0.0 if delta_fitness < 0 else delta_fitness
+    old_count = pgc['pgc_f_count'][depth]
+    pgc['pgc_delta_fitness'][depth] += pgc['pgc_previous_fitness'][depth] - pgc['pgc_fitness'][depth]
+    pgc['pgc_f_count'][depth] += 1
+    pgc['pgc_fitness'][depth] = (old_count * pgc['pgc_fitness'][depth] + pgc['pgc_previous_fitness'][depth]) / pgc['pgc_f_count'][depth]
 
 
 def xGC_evolvability(xgc, delta_fitness, depth):
@@ -794,9 +999,9 @@ def xGC_evolvability(xgc, delta_fitness, depth):
     depth (int): The layer in the environment pgc is at.
     """
     increase = 0.0 if delta_fitness < 0 else delta_fitness
-    old_count = xgc['e_count'][depth]
-    xgc['e_count'][depth] += 1
-    xgc['evolvability'][depth] = (old_count * xgc['evolvability'][depth] + increase) / xgc['e_count'][depth]
+    old_count = xgc['pgc_e_count'][depth]
+    xgc['pgc_e_count'][depth] += 1
+    xgc['pgc_evolvability'][depth] = (old_count * xgc['pgc_evolvability'][depth] + increase) / xgc['pgc_e_count'][depth]
 
 
 def evolve_physical(gp, pgc, depth):
@@ -819,87 +1024,90 @@ def evolve_physical(gp, pgc, depth):
     -------
     (bool): True if the pGC was evolved else False
     """
-    if not (pgc['f_count'][depth] & M_MASK):
-        pgc['delta_fitness'][depth] = 0.0
+    if not (pgc['pgc_f_count'][depth] & M_MASK):
+        pgc['pgc_delta_fitness'][depth] = 0.0
         gp.layer_evolutions[depth] += 1
         ppgc = select_pGC(gp, pgc, depth)
         offspring = ppgc.exec((pgc,))
-        xGC_inherit(offspring, pgc, ppgc)
+        pGC_inherit(offspring, pgc, ppgc)
         return True
     return False
 
 
-def cull_physical(pgc_iter, layer):
-    """Remove one pGC in layer .
-
-    Note that the pGC is not deleted if it is present in other layers,
-    its f_valid for the layer are just set to False.
-
-    Args
-    ----
-    pgc_iter iter(dict): pGC's to consider. Dict must have:
-        'f_valid'
-        'fitness'
-    depth (int): The layer in the environment to select a victim from.
-    """
-    func = lambda x: x['f_valid'][layer]
-    filtered_pool = tuple(filter(func, pgc_iter))
-    weights = array([1.0 - i['fitness'][layer] for i in filtered_pool], float32)
-    weights /= sum(weights)
-    victim = choice(filtered_pool, None, False, weights)
-    victim['f_valid'][layer] = False
-
-
-def create_layer(gp):
-    """Create a new physical GC layer.
-
-    Creation means the depth of the environment increases by adding a
-    new top layer of pGC's.
-
-    NOTE: Only pGC's can exist in layers > 0
-    """
-    for pgc in filter(lambda x: x['properties'] & PHYSICAL_PROPERTY, gp.pool.values()):
-        for col in LAYER_COLUMNS:
-            pgc[col].append(pgc[col][-1])
-        for col, value in LAYER_COLUMNS_RESET.items():
-            pgc[col][-1] = value if pgc[col][-2] else 0
-    gp.num_layers += 1
-    gp.layer_evolutions.append(0)
-
-
-def select_pGC(gp, xgc, depth):
+def select_pGC(pgcs, xgc, depth):
     """Select a pgc to evolve xgc.
 
-    A pgc is found from layer depth + 1.
-    If layer depth + 1 does not exist then it is created.
+    A pgc is found from layer depth.
 
     Args
     ----
-    gp (gene_pool): The gene pool containing xgc.
+    pgcs (seq(pGC)): The pGC's to choose from.
     xgc (xGC): The GC to find a pgc for.
-    depth (int): The layer in the environment xgc is at.
+    depth (int): The layer in the environment to find PGC.
 
     Returns
     -------
     pgc (pGC): A pGC to evolve xgc.
     """
-    if depth == gp.num_layers:
-        create_layer(gp)
-
-    # TODO: More sophisticated selection algorithm
-    # This one picks a pGC randomly weighted by fitness.
-    next_layer = depth + 1
-    func = lambda x: x['f_valid'][next_layer]
-
     # OPTIMIZATION: Weights & filtered_pool could be cached for a depth?
-    filtered_pool = tuple(filter(func, gp.pool.values()))
-    weights = array([1.0 - i['if'][next_layer] for i in filtered_pool], float32)
+    # TODO: Selection based on the character of xgc
+    weights = array([i['pgc_previous_fitness'][depth] for i in pgcs], float32)
     weights /= sum(weights)
-    return choice(filtered_pool, None, False, weights)
+    return np_choice(pgcs, 1, False, weights)[0]
+
+
+def pGC_inherit(child, parent, pgc):
+    """Inherit PGC only properties from parent to child.
+
+    child is modified.
+    parent is modified.
+
+    Parental protection works differently for a PGC than a population individual because a
+    PGC child must survive before being characterized where as a population child is
+    characterized immediately.
+
+    Args
+    ----
+    child (xGC): Offspring of parent and pgc.
+    parent (xGC): Parent of child.
+    pgc (pGC): pGC that operated on parent to product child.
+    """
+    # TODO: A better data structure would be quicker
+    child['pgc_fitness'] = [f * _PGC_PARENTAL_PROTECTION_FACTOR for f in parent['pgc_fitness']]
+    child['pgc_f_count'] = [int(f) for f in parent['pgc_f_valid']]
+    child['pgc_evolvability'] = [f * _PGC_PARENTAL_PROTECTION_FACTOR for f in parent['pgc_evolvability']]
+    child['pgc_e_count'] = [int(f) for f in parent['pgc_e_valid']]
+    child['delta_fitness'] = [0.0] * M_CONSTANT
+    child['pgc_previous_fitness'] = copy(child['pgc_fitness'])
+    child['f_valid'] = parent['f_valid']
+    xGC_inherit(child, parent, pgc)
+
+
+def population_GC_inherit(child, parent, pgc):
+    """Inherit population properties from parent to child.
+
+    child is modified.
+    parent is modified.
+
+    The child must have been characterized i.e. fitness and survivability defined.
+
+    Parental protection for a population individual can only be of benefit.
+
+    Args
+    ----
+    child (xGC): Offspring of parent and pgc.
+    parent (xGC): Parent of child.
+    pgc (pGC): pGC that operated on parent to product child.
+    """
+    child['evolvability'] = parent['evolvability'] * _POPULATION_PARENTAL_PROTECTION_FACTOR
+    child['e_count'] = 1
+    child['survivability'] = parent['survivability'] * _POPULATION_PARENTAL_PROTECTION_FACTOR
+    child['population'] = parent['population']
+    xGC_inherit(child, parent, pgc)
 
 
 def xGC_inherit(child, parent, pgc):
-    """Inherit some properties from parent to child.
+    """Inherit generic properties from parent to child.
 
     child is modified.
     parent is modified.
@@ -916,10 +1124,11 @@ def xGC_inherit(child, parent, pgc):
     child['evolvability'] = copy(parent['evolvability'])
     for f_valid in parent['f_valid']:
         child['e_count'] = 1 if f_valid else 0
+    # TODO: What about survivability? Treat like the above/ something like it?
 
     child['population'] = parent['population']
     child['ancestor_a_ref'] = parent['ref']
-    child['pgc_ref'] = pgc['ref']
+    child['ref_pgc'] = pgc['ref']
     child['generation'] = parent['generation'] + 1
 
     parent['offspring_count'] += 1
