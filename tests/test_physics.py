@@ -15,7 +15,7 @@ from statistics import stdev
 
 from egp_physics.gc_graph import gc_graph
 from egp_physics.gc_type import eGC, mGC
-from egp_physics.physics import gc_insert
+from egp_physics.physics import stablize
 
 # Load the results file.
 with open(join(dirname(__file__), "data/test_physics_results.json"), "r") as file_ptr:
@@ -39,7 +39,7 @@ def test_basic_insert_1_simple():
     """Test case #1 of GC insertion."""
     tgc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    graph = gc_insert(None, tgc, igc, 'A')[0]['graph']
+    graph = stablize(None, tgc, igc, 'A')[0]['graph']
     code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
     """
     # Debug code
@@ -64,7 +64,7 @@ def test_basic_insert_2_simple():
     """
     tgc = mGC(igraph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O': [['A', 0, 2]]}), sv=False)
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    graph = gc_insert(None, tgc, igc, 'A')[0]['graph']
+    graph = stablize(None, tgc, igc, 'A')[0]['graph']
     code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
 
     """
@@ -83,7 +83,7 @@ def test_basic_insert_3_simple():
     """Test case #3 of GC insertion."""
     tgc = mGC(igraph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O': [['A', 0, 2]]}), sv=False)
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    graph = gc_insert(None, tgc, igc, 'B')[0]['graph']
+    graph = stablize(None, tgc, igc, 'B')[0]['graph']
     code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
 
     """
@@ -108,7 +108,7 @@ def test_basic_insert_4_simple():
     }
     tgc = mGC(igraph=gc_graph(graph), sv=False)
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    graph = gc_insert(None, tgc, igc, 'A')[0]['graph']
+    graph = stablize(None, tgc, igc, 'A')[0]['graph']
     code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
 
     """
@@ -138,7 +138,7 @@ def test_basic_insert_5_simple():
     }
     tgc = mGC(igraph=gc_graph(graph), sv=False)
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    graph = gc_insert(None, tgc, igc, 'B')[0]['graph']
+    graph = stablize(None, tgc, igc, 'B')[0]['graph']
     code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
 
     """
@@ -168,7 +168,7 @@ def test_basic_insert_6_simple():
     }
     tgc = mGC(igraph=gc_graph(graph), sv=False)
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    graph = gc_insert(None, tgc, igc, 'O')[0]['graph']
+    graph = stablize(None, tgc, igc, 'O')[0]['graph']
     code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
 
     """
@@ -190,7 +190,7 @@ def test_basic_insert_1_stats():
     """
     tgc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    def f(): return md5(bytearray(pformat(gc_insert(None, tgc, igc, 'A')[0]['graph']), encoding='ascii')).hexdigest()
+    def f(): return md5(bytearray(pformat(stablize(None, tgc, igc, 'A')[0]['graph']), encoding='ascii')).hexdigest()
     def func(x): return [f() for _ in range(x)]
     unlikely = 0
     for _ in range(3):
@@ -230,7 +230,7 @@ def test_basic_insert_2_stats():
     """
     tgc = mGC(igraph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O': [['A', 0, 2]]}), sv=False)
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    def f(): return md5(bytearray(pformat(gc_insert(None, tgc, igc, 'A')[0]['graph']), encoding='ascii')).hexdigest()
+    def f(): return md5(bytearray(pformat(stablize(None, tgc, igc, 'A')[0]['graph']), encoding='ascii')).hexdigest()
     def func(x): return [f() for _ in range(x)]
     unlikely = 0
     for _ in range(3):
@@ -257,7 +257,7 @@ def test_basic_insert_3_stats():
     """
     tgc = mGC(igraph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O': [['A', 0, 2]]}), sv=False)
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    def f(): return md5(bytearray(pformat(gc_insert(None, tgc, igc, 'B')[0]['graph']), encoding='ascii')).hexdigest()
+    def f(): return md5(bytearray(pformat(stablize(None, tgc, igc, 'B')[0]['graph']), encoding='ascii')).hexdigest()
     def func(x): return [f() for _ in range(x)]
     unlikely = 0
     for _ in range(3):
@@ -297,7 +297,7 @@ def test_basic_insert_4_stats():
         rgc_codes = []
         fgc_codes = []
         for _ in range(STATS_N):
-            result = gc_insert(None, tgc, igc, 'A')
+            result = stablize(None, tgc, igc, 'A')
             #TODO: Make code generation a function and reuse.
             rgc_codes.append(md5(bytearray(pformat(result[0]['graph']), encoding='ascii')).hexdigest())
             if _LOG_DEBUG:
@@ -346,7 +346,7 @@ def test_basic_insert_5_stats():
         rgc_codes = []
         fgc_codes = []
         for _ in range(STATS_N):
-            result = gc_insert(None, tgc, igc, 'B')
+            result = stablize(None, tgc, igc, 'B')
             #TODO: Make code generation a function and reuse.
             rgc_codes.append(md5(bytearray(pformat(result[0]['graph']), encoding='ascii')).hexdigest())
             if _LOG_DEBUG:
@@ -389,7 +389,7 @@ def test_basic_insert_6_stats():
     }
     tgc = mGC(igraph=gc_graph(graph), sv=False)
     igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    def f(): return md5(bytearray(pformat(gc_insert(None, tgc, igc, 'O')[0]['graph']), encoding='ascii')).hexdigest()
+    def f(): return md5(bytearray(pformat(stablize(None, tgc, igc, 'O')[0]['graph']), encoding='ascii')).hexdigest()
     def func(x): return [f() for _ in range(x)]
     unlikely = 0
     for _ in range(3):
@@ -425,5 +425,5 @@ def test_random_homogeneous_insertion():
     for _ in range(1000):
         tgc = choice(gc_list)
         igc = choice(gc_list)
-        gc_list.append(gc_insert(None, tgc, igc, choice('ABO'))[0])
+        gc_list.append(stablize(None, tgc, igc, choice('ABO'))[0])
         assert gc_list[-1]['igraph'].validate()

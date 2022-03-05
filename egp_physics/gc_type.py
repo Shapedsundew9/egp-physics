@@ -193,14 +193,17 @@ def is_pgc(gc):
     """
     if _LOG_DEBUG:
         # More juicy test for consistency
+        # TODO: More conditions can be added
         it = gc.get('input_types', [])
         i = gc.get('inputs', [])
         ot = gc.get('output_types', [])
         o = gc.get('outputs', [])
-        pgc_inputs = it and it[0] == asint('egp_physics.gc_type_gGC') and len(i) == 1
-        pgc_outputs = ot and ot[0] == asint('egp_physics.gc_type_gGC') and len(o) == 1
-        assert pgc_inputs and pgc_outputs == gc.get('pgc_fitness', None) is None
-    return gc.get('pgc_fitness', None) is None
+        pgc_inputs = bool(it) and it[0] == asint('egp_physics.gc_type_gGC') and len(i) == 1
+        pgc_outputs = bool(ot) and ot[0] == asint('egp_physics.gc_type_gGC') and len(o) == 1
+        _logger.debug(f"PGC is not a PGC!: {gc}\n\t{pgc_inputs}, {pgc_outputs}, {gc.get('pgc_fitness', None)},"
+                      f" {(pgc_inputs and pgc_outputs)}, {(gc.get('pgc_fitness', None) is not None)}")
+        assert((pgc_inputs and pgc_outputs) == (gc.get('pgc_fitness', None) is not None))
+    return gc.get('pgc_fitness', None) is not None
 
 
 class _GC(dict):
@@ -374,6 +377,8 @@ class gGC(_GC):
 
             # PGCs have special fields in the Gene Pool
             if is_pgc(self) and 'pgc_f_valid' not in self:
+                if _LOG_DEBUG:
+                    _logger.debug(f"{self['pgc_fitness']}")
                 self['pgc_delta_fitness'] = [0.0] * NUM_PGC_LAYERS
                 self['pgc_previous_fitness'] = copy(self['pgc_fitness'])
                 self['pgc_f_valid'] = [f > 0.0 for f in self['pgc_fitness']]

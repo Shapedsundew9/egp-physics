@@ -20,7 +20,7 @@ _LOG_DEBUG = _logger.isEnabledFor(DEBUG)
 # Steady state exception filters.
 _EXCLUSION_LIMIT =  ' AND NOT ({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT 1'
 
-# FIXME: Replace with a localisation hash
+# TODO: Replace with a localisation hash?
 _MATCH_TYPE_0_SQL = ('WHERE {input_types} = {itypes}::SMALLINT[] AND {inputs} = {iidx} AND {output_types} = {otypes}::SMALLINT[] AND {outputs} = {oidx}'
                      + _EXCLUSION_LIMIT)
 _MATCH_TYPE_1_SQL = 'WHERE {input_types} = {itypes}::SMALLINT[] AND {output_types} = {otypes}::SMALLINT[] AND {outputs} = {oidx}' + _EXCLUSION_LIMIT
@@ -869,8 +869,9 @@ def proximity_select(gms, xputs):
     """
     # TODO: Lots of short queries is inefficient. Ideas:
     #   a) Specific query support from GP local cache
-    #   b) Cache general queries (but this means missing out on new options)
-    #   c) Batch queries (but this is architecturally tricky)
+    #   b) https://stackoverflow.com/questions/42089781/sql-if-select-returns-nothing-then-do-another-select ?
+    #   c) Cache general queries (but this means missing out on new options)
+    #   d) Batch queries (but this is architecturally tricky)
     match_type = randint(0, _NUM_MATCH_TYPES - 1)
     agc = tuple(gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs))
     while not agc and match_type < _NUM_MATCH_TYPES - 1:
