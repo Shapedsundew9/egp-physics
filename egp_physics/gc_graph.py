@@ -25,7 +25,7 @@ from graph_tool import Graph
 from graph_tool.draw import graph_draw
 from networkx import DiGraph, get_node_attributes, spring_layout
 
-from .ep_type import asstr, compatible, import_str, type_str, validate, REAL_EP_TYPE_VALUES
+from .ep_type import asstr, compatible, import_str, type_str, validate, REAL_EP_TYPE_VALUES, UNKNOWN_EP_TYPE_VALUE
 from .utils.text_token import register_token_code, text_token
 
 _logger = getLogger(__name__)
@@ -274,8 +274,7 @@ class gc_graph():
             for ep_type in (False, True):
                 row_dict = {k: v for k, v in self.graph.items() if v[0] == ep_type and v[ep_idx.ROW] == row}
                 str_list.extend([k + ': ' + str(v) for k, v in sorted(row_dict.items(), key=_REPR_LAMBDA)])
-        string = ',\n'.join(str_list) + '\n'
-        string += "(\n{},\n{}\n)\n{}".format(pformat(self.rows[0]), pformat(self.rows[1]), pformat(self.app_graph))
+        string = ', '.join(str_list)
         return string
 
     def _convert_to_internal(self, graph):
@@ -1184,6 +1183,142 @@ class gc_graph():
             str(self)
 
         return not self.status
+
+    def random_mutation(self):
+        """Randomly selects a way to mutate the graph and executes it.
+
+        Mutations are single steps e.g. a disconnection of a source endpoint. The
+        reconnection is a repair(). Compound changes are only permitted when
+        there is only one possible repair option (excluding undoing the change) e.g.
+        adding row 'F' requires that row 'P' must be added however, both rows endpoints
+        may be connected many ways.
+
+        Changes are likely to break the graph but they may not. For example,
+        disconnecting a source end point will break it but change the type
+        of an input source or the value of a constant may not.
+
+        Each random change has the same probability:
+            1. Add/remove a source end point.
+            2. Add/remove a destination endpoint.
+            3. Mutate the type of an endpoint.
+            4. Mutate a constant.
+            5. Add/remove 'F' (and 'P')
+
+        """
+        change_functions = (
+            self.random_add_src_ep,
+            self.random_remove_src_ep,
+            self.random_add_dst_ep,
+            self.random_remove_dst_ep
+        )
+        choice(change_functions)()
+
+
+    def random_add_src_ep(self):
+        """Randomly choose a source row and add an endpoint of unknown type."""
+        src_rows = ['I', 'C', 'A']
+        if self.has_b(): src_rows.append('B')
+        self.add_src_ep(choice(src_rows))
+
+
+    def add_src_ep(self, row):
+        """Add an endpoint to row of UNKNOWN_EP_TYPE_VALUE."""
+        self._add_ep([SRC_EP, row, None, UNKNOWN_EP_TYPE_VALUE, []])
+        if row == 'I': self.status.append(text_token({'I01000': {}}))
+        elif row == 'A': self.status.append(text_token({'I01100': {}}))
+        elif row == 'B': self.status.append(text_token({'I01200': {}}))
+
+
+    def random_remove_src_ep(self):
+        """Randomly choose a source row and randomly remove an endpoint."""
+        src_rows = [r for r in gc_graph.src_rows['O'] if r in self.rows[SRC_EP]]
+        ep_list = self.unreferenced_filter(self.row_filter(choice(src_rows), self.src_filter()))
+        self.remove_src_ep(tuple(choice(ep_list)))
+
+
+    def remove_src_ep(self, ep_list):
+        """Remove a source endpoint."""
+        if ep_list:
+            ep = ep_list[0]
+            ep_row = ep[ep_idx.ROW]
+            self._remove_ep(ep)
+            if ep_row == 'I': self.status.append(text_token({'I01001': {}}))
+            elif ep_row == 'A': self.status.append(text_token({'I01101': {}}))
+            elif ep_row == 'B': self.status.append(text_token({'I01201': {}}))
+        else:
+            self.status.append(text_token({'I01900': {}}))
+
+
+    def random_add_dst_ep(self):
+        """Randomly choose a destination row and add an endpoint of unknown type."""
+        dst_rows = ['A', 'O']
+        if self.has_b(): dst_rows.append('B')
+        self.add_dst_ep(choice(dst_rows))
+
+
+    def add_dst_ep(self, row):
+        """Add an endpoint to row of UNKNOWN_EP_TYPE_VALUE."""
+        self._add_ep([DST_EP, row, None, UNKNOWN_EP_TYPE_VALUE, []])
+        if row == 'O':
+            self.status.append(text_token({'I01302': {}}))
+            if self.has_f():
+                self._add_ep([DST_EP, 'P', None, UNKNOWN_EP_TYPE_VALUE, []])
+                self.status.append(text_token({'I01402': {}}))
+        elif row == 'A': self.status.append(text_token({'I01102': {}}))
+        elif row == 'B': self.status.append(text_token({'I01202': {}}))
+
+
+    def remove_rows(self, rows):
+        """Remove rows from the graph."""
+        # Find all endpoints from the rows to delete, collect the endpoints that reference them
+        # and delete the row endpoints.
+        ref_list = []
+        for k in tuple(filter(lambda x: x[0] in rows, self.graph.keys())):
+            ref_list.extend([hash_ref(ref, not self.graph[k][ep_idx.EP_TYPE]) for ref in self.graph[k][ep_idx.REFERENCED_BY]])
+            del self.graph[k]
+
+        # Update the row endpoint count tracking
+        for row in rows:
+            if row in self.rows[SRC_EP]: del self.rows[SRC_EP][row]
+            if row in self.rows[DST_EP]: del self.rows[DST_EP][row]
+
+        # Find all the references to deleted rows and delete them
+        for ep_hash in ref_list:
+            refs = self.graph[ep_hash][ep_idx.REFERENCED_BY]
+            del_list = [pos for pos, ref in enumerate(refs) if ref[ref_idx.ROW] in rows]
+            for victim in del_list: del refs[victim]
+
+
+    def random_remove_dst_ep(self):
+        """Randomly choose a destination row and randomly remove an endpoint."""
+        dst_rows = ['A', 'O']
+        if self.has_b(): dst_rows.append('B')
+        ep_list = self.unreferenced_filter(self.row_filter(choice(dst_rows), self.dst_filter))
+        self.remove_dst_ep(tuple(choice(ep_list)))
+
+
+    def remove_dst_ep(self, ep_list):
+        """Remove a destination endpoint.
+
+        Args
+        ----
+            ep_list (list): A list of destination endpoints. Only the first endpoint
+                            in the list will be removed.
+        """
+        if ep_list:
+            ep = ep_list[0]
+            ep_row = ep[ep_idx.ROW]
+            self._remove_ep(ep)
+            if ep_row == 'O':
+                self.status.append(text_token({'I01303': {}}))
+                if self.has_f():
+                    ep[ep_idx.ROW] = 'P'
+                    self._remove_ep(ep)
+                    self.status.append(text_token({'I01403': {}}))
+            elif ep_row == 'A': self.status.append(text_token({'I01103': {}}))
+            elif ep_row == 'B': self.status.append(text_token({'I01203': {}}))
+        else:
+            self.status.append(text_token({'I01900': {}}))
 
     def remove_all_connections(self):
         """Remove all connections."""

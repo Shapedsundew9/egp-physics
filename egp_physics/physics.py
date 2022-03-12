@@ -96,7 +96,7 @@ def _copy_clean_row(igc, rows, ep_type=None):
         def filter_func(x): return x[1][ep_idx.ROW] in rows
     copied_row = {k: copy(ep) for k, ep in filter(filter_func, igc.items())}
     for ep in copied_row.values():
-        ep[ep_idx.REFERENCED_BY] = []
+        ep[ep_idx.REFERENCED_BY].clear()
     return copied_row
 
 
@@ -130,7 +130,7 @@ def _move_row(igc, src_row, src_ep_type, dst_row, dst_ep_type, clean=False):
     for ep in dst_eps:
         ep[ep_idx.ROW] = dst_row
         if clean:
-            ep[ep_idx.REFERENCED_BY] = []
+            ep[ep_idx.REFERENCED_BY].clear()
     if dst_ep_type is not None:
         for ep in dst_eps:
             ep[ep_idx.EP_TYPE] = dst_ep_type
@@ -405,7 +405,7 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
     created to stabilise rgc.
     """
     if target_gc['igraph'].has_f():
-        return []
+        return (target_gc, {})
     if above_row is None:
         above_row = 'ABO'[randint(0, 2)]
 
@@ -423,7 +423,7 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
     if insert_gc is None:
         if rgc_graph.is_stable():
             if _LOG_DEBUG: _logger.debug('Target GC is stable & nothing to insert.')
-            return [target_gc]
+            return (target_gc, {})
         if _LOG_DEBUG: _logger.debug('Target GC is unstable & nothing to insert.')
         work_stack = [steady_state_exception(gms, rgc)]
     else:
@@ -508,7 +508,23 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
                 rgc['gca_ref'] = target_gc['ref']
                 rgc['gcb_ref'] = insert_gc['ref']
                 fgc_dict[target_gc['ref']] = target_gc
-        rgc['ref'] = target_gc['ref']
+
+        # rgc['ref'] must be new & replace any previous mentions
+        # of target_gc['ref'] in fgc_dict[*]['gca_ref' or 'gcb_ref']
+        # and the new_tgc if it is defined.
+        # TODO: There must be a more efficient way of doing this
+        new_ref = rgc['ref'] = random_reference()
+        old_ref = target_gc['ref']
+        for nfgc in fgc_dict.values():
+            if nfgc['gca_ref'] == old_ref:
+                nfgc['gca_ref'] = new_ref
+            if nfgc['gcb_ref'] == old_ref:
+                nfgc['gcb_ref'] = new_ref
+        if new_tgc is not None:
+            if new_tgc['gca_ref'] == old_ref:
+                new_tgc['gca_ref'] = new_ref
+            if new_tgc['gcb_ref'] == old_ref:
+                new_tgc['gcb_ref'] = new_ref
 
         # Check we have valid graphs
         # FGC is added to the work stack ahead of RGC
@@ -633,22 +649,17 @@ def gc_remove(gms, tgc, abpo=None):
     if tgc is not None:
         rgc = eGC(tgc)
         if abpo is None:
-            abpo = choice('ABPO')
+            abpo = choice('ABP')
         rgc_graph = rgc['igraph']
         rgc_graph.remove_rows(abpo)
         if abpo == 'A':
             rgc['gca_ref'] = tgc['gcb_ref']
             rgc['gcb_ref'] = None
-            rgc_graph.move_refs('B', 'A')
         elif abpo == 'B':
             rgc['gca_ref'] = tgc['gca_ref']
             rgc['gcb_ref'] = None
         elif abpo == 'P':
             rgc_graph.remove_rows('F')
-        elif abpo == 'O':
-            rgc_graph.remove_rows('F')
-            rgc_graph.graph.update(_move_row(rgc_graph.graph, 'P', None, 'O', None))
-            rgc_graph.move_refs('P', 'O')
         return _pgc_epilogue(gms, rgc)
 
 
@@ -671,8 +682,10 @@ def _pgc_epilogue(gms, xgc):
     -------
     rgc (gGC): Resultant gGC or None
     """
+    if _LOG_DEBUG:
+        _logger.debug(f'PGC epilogue with xgc = {xgc}')
     if not xgc is None:
-        rgc, fgcs = stablize(xgc)
+        rgc, fgcs = stablize(gms, xgc)
         ggcs = [gGC(fgc, modified=True) for fgc in fgcs.values()]
         ggcs.append(gGC(rgc, modified = True))
         gms.add_to_gp_cache(ggcs)
@@ -700,7 +713,7 @@ def gc_remove_all_connections(gms, tgc):
     """
     if tgc is not None:
         egc = eGC(tgc)
-        egc['igraph'].remove_all_connection()
+        egc['igraph'].remove_all_connections()
         return _pgc_epilogue(gms, egc)
 
 
@@ -1120,11 +1133,10 @@ def xGC_inherit(child, parent, pgc):
     pgc (pGC): pGC that operated on parent to product child.
     """
     child['fitness'] = copy(parent['fitness'])
-    for f_valid in parent['f_valid']:
-        child['f_count'] = 1 if f_valid else 0
     child['evolvability'] = copy(parent['evolvability'])
-    for f_valid in parent['f_valid']:
-        child['e_count'] = 1 if f_valid else 0
+    if 'f_valid' in parent:
+        child['f_count'] = [int(fc > 0) for fc in parent['fcount']]
+        child['e_count'] = copy(child['f_count'])
     # TODO: What about survivability? Treat like the above/ something like it?
 
     child['population'] = parent['population']

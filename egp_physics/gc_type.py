@@ -200,9 +200,10 @@ def is_pgc(gc):
         o = gc.get('outputs', [])
         pgc_inputs = bool(it) and it[0] == asint('egp_physics.gc_type_gGC') and len(i) == 1
         pgc_outputs = bool(ot) and ot[0] == asint('egp_physics.gc_type_gGC') and len(o) == 1
-        _logger.debug(f"PGC is not a PGC!: {gc}\n\t{pgc_inputs}, {pgc_outputs}, {gc.get('pgc_fitness', None)},"
-                      f" {(pgc_inputs and pgc_outputs)}, {(gc.get('pgc_fitness', None) is not None)}")
-        assert((pgc_inputs and pgc_outputs) == (gc.get('pgc_fitness', None) is not None))
+        check = (pgc_inputs and pgc_outputs) == (gc.get('pgc_fitness', None) is not None)
+        if not check:
+            ValueError(f"PGC is not a PGC!: {gc['ref']}\n\t{pgc_inputs}, {pgc_outputs}, {gc.get('pgc_fitness', None)},"
+                          f" {(pgc_inputs and pgc_outputs)}, {(gc.get('pgc_fitness', None) is not None)}")
     return gc.get('pgc_fitness', None) is not None
 
 
@@ -211,6 +212,9 @@ class _GC(dict):
 
     Validity is in the context of a steady state GC i.e. an INVALID field will not cause
     a validate() failure but the GC will not be stable (valid).
+
+    All derived classes mutate the the supplied dict-like object to make
+    it a valid _GC type. The dict is NOT copied.
     """
 
     validator = generic_validator(SCHEMA)
@@ -246,25 +250,20 @@ class eGC(_GC):
 
     validator = generic_validator(_get_schema(_EGC), allow_unknown=True)
 
-    def __init__(self, gc=None, inputs=None, outputs=None, vt=vtype.OBJECT, sv=True):
+    def __init__(self, gc={}, inputs=None, outputs=None, vt=vtype.OBJECT, sv=True):
         """Construct.
 
         NOTE: gc will be modified
+
         Args
         ----
-        gc (a _GC dervived object): GC to ensure is eGC compliant.
+        gc (a dict-like object): GC to ensure is eGC compliant.
         inputs (iterable(object)): GC inputs. Object is of the type defined by vt.
         outputs (iterable(object)): GC outputs. Object is of the type defined by vt.
         vt (vtype): The interpretation of the object. See vtype definition.
         sv (bool): Suppress validation. If True the eGC will not be validated on construction.
         """
-        # Make sure only the fields that are needed are copied.
-        # TODO: This needs cleaning up.
-        _gc = {}
-        if gc is not None:
-            for field in ('graph', 'igraph', 'gca', 'gcb', 'gca_ref', 'gcb_ref', 'inputs', 'input_types', 'outputs', 'output_types'):
-                if field in gc: _gc[field] = gc[field]
-        super().__init__(_gc)
+        super().__init__(gc)
 
         if inputs is not None:
             graph_inputs, self['input_types'], self['inputs'] = interface_definition(inputs, vt)
@@ -276,6 +275,7 @@ class eGC(_GC):
             graph_outputs = []
         self.setdefault('gca_ref', self._ref_from_sig('gca'))
         self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
+        self.setdefault('generation', 0)
         self['modified'] = True
         if 'igraph' not in self:
             if 'graph' in self:
@@ -321,6 +321,7 @@ class mGC(_GC):
         self.setdefault('igraph', igraph)
         self.setdefault('gca_ref', self._ref_from_sig('gca'))
         self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
+        self.setdefault('generation', 0)
         if 'inputs' not in self:
             inputs = self['igraph'].input_if()
             outputs = self['igraph'].output_if()
@@ -362,6 +363,7 @@ class gGC(_GC):
             self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
             self.setdefault('igraph', gc_graph(self.get('graph', {})))
             self.setdefault('evolved', [True])
+            self.setdefault('generation', 0)
             if 'inputs' not in self:
                 inputs = self['igraph'].input_if()
                 outputs = self['igraph'].output_if()
@@ -386,6 +388,13 @@ class gGC(_GC):
                 self.setdefault('fitness', 0.0)
                 self.setdefault('survivability', 0.0)
 
+            if _LOG_DEBUG:
+                if self['ref'] == self['gca_ref']:
+                    raise ValueError('GC ref == GCA ref. A GC cannot self reference.')
+                if self['ref'] == self['gcb_ref']:
+                    raise ValueError('GC ref == GCB ref. A GC cannot self reference.')
+
+            # TODO: This should be logger based validation.
             if not sv:
                 self.validate()
 
