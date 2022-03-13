@@ -186,7 +186,8 @@ def _append_connect(igc, src_row, dst_row):
 
     # Find the next endpoint index in the destination row
     def filter_func(x): return not x[ep_idx.EP_TYPE] and x[ep_idx.ROW] == dst_row
-    next_idx = max([dst_ep[ep_idx.INDEX] for dst_ep in filter(filter_func, igc.values())]) + 1
+    indices = [dst_ep[ep_idx.INDEX] for dst_ep in filter(filter_func, igc.values())]
+    next_idx = max(indices) + 1 if indices else 0
 
     # Append a destination endpoint for every source endpoint
     def filter_func(x): return x[ep_idx.EP_TYPE] and x[ep_idx.ROW] == src_row
@@ -299,9 +300,8 @@ def _insert(igc_gcg, tgc_gcg, above_row):  # noqa: C901
         else:
             if _LOG_DEBUG:
                 _logger.debug("Case 3: No row B and insert below A")
-            rgc.update(_copy_row(tgc, 'A'))
+            rgc.update(_copy_row(tgc, 'AO'))
             rgc.update(_insert_as(igc, 'B'))
-            rgc.update(_copy_row(tgc, 'O'))
     else:
         if above_row == 'A':
             if _LOG_DEBUG:
@@ -313,8 +313,7 @@ def _insert(igc_gcg, tgc_gcg, above_row):  # noqa: C901
             fgc.update(_append_connect(fgc, 'A', 'O'))
             rgc.update(_direct_connect(rgc, 'I', 'A'))
             rgc.update(_move_row(fgc, 'O', None, 'A', SRC_EP, True))
-            rgc.update(_copy_row(tgc, 'B'))
-            rgc.update(_copy_row(tgc, 'O'))
+            rgc.update(_copy_row(tgc, 'BO'))
         elif above_row == 'B':
             if _LOG_DEBUG:
                 _logger.debug("Case 5: Has rows A & B and insert above B")
@@ -325,15 +324,17 @@ def _insert(igc_gcg, tgc_gcg, above_row):  # noqa: C901
             fgc.update(_append_connect(fgc, 'B', 'O'))
             rgc.update(_direct_connect(rgc, 'I', 'A'))
             rgc.update(_move_row(fgc, 'O', None, 'A', SRC_EP, True))
-            rgc.update(_copy_row(tgc, 'B'))
-            rgc.update(_copy_row(tgc, 'O'))
+            rgc.update(_copy_row(tgc, 'BO'))
         else:
             if _LOG_DEBUG:
                 _logger.debug("Case 6: Has rows A & B and insert above O")
+            fgc.update(_copy_clean_row(tgc, 'IC'))
+            fgc.update(_copy_row(tgc, 'AB'))
+            fgc.update(_direct_connect(fgc, 'A', 'O'))
+            fgc.update(_append_connect(fgc, 'B', 'O'))
             rgc.update(_direct_connect(rgc, 'I', 'A'))
-            rgc.update(_move_row(tgc, 'O', DST_EP, 'A', SRC_EP, True))
             rgc.update(_insert_as(igc, 'B'))
-            rgc.update(_direct_connect(rgc, 'A', 'O'))
+            rgc.update(_copy_clean_row(tgc, 'O'))
 
     # Case 1 is special because rgc is invalid by definition. In this case a
     # gc_graph normalization is forced to try and avoid the inevitable steady
@@ -409,7 +410,7 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
     if above_row is None:
         above_row = 'ABO'[randint(0, 2)]
 
-    rgc_graph = target_gc['igraph']
+    rgc_graph = deepcopy(target_gc['igraph'])
     rgc = {
         'graph': rgc_graph.app_graph,
         'igraph': rgc_graph,
@@ -475,7 +476,7 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
                     rgc['gcb_ref'] = target_gc['gca_ref']
                 else:
                     rgc['gcb_ref'] = target_gc['ref']
-                    fgc_dict[target_gc['ref']] = target_gc
+                    #? fgc_dict[target_gc['ref']] = target_gc
             else:  # Case 3
                 if _LOG_DEBUG:
                     _logger.debug("Case 3")
@@ -483,7 +484,7 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
                     rgc['gca_ref'] = target_gc['gca_ref']
                 else:
                     rgc['gca_ref'] = target_gc['ref']
-                    fgc_dict[target_gc['ref']] = target_gc
+                    #? fgc_dict[target_gc['ref']] = target_gc
                 rgc['gcb_ref'] = insert_gc['ref']
         else:  # Has row A & row B
             if above_row == 'A':  # Case 4
@@ -505,9 +506,12 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
             else:  # Case 6
                 if _LOG_DEBUG:
                     _logger.debug("Case 6")
-                rgc['gca_ref'] = target_gc['ref']
+                fgc['gca_ref'] = target_gc['gca_ref']
+                fgc['gcb_ref'] = target_gc['gcb_ref']
+                fgc['ref'] = random_reference()
+                rgc['gca_ref'] = fgc['ref']
                 rgc['gcb_ref'] = insert_gc['ref']
-                fgc_dict[target_gc['ref']] = target_gc
+                #? fgc_dict[target_gc['ref']] = target_gc
 
         # rgc['ref'] must be new & replace any previous mentions
         # of target_gc['ref'] in fgc_dict[*]['gca_ref' or 'gcb_ref']
@@ -554,6 +558,8 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
 
     if _LOG_DEBUG:
         _logger.debug("fgc_dict details:\n{}".format(pformat(fgc_dict)))
+        #TODO: target_gc & new_tgc interface must be the same. Validate.
+
     return (None, None) if work_stack else (new_tgc, fgc_dict)
 
 
@@ -967,14 +973,15 @@ def pGC_fitness(gp, pgc, delta_fitness):
     pgc (pGC): A physical GC.
     delta_fitness (float): The change in fitness of the GC pGC mutated.
     """
-    depth = 1
+    depth = 0
+    _pGC_evolvability(pgc, delta_fitness, depth)
     _pGC_fitness(pgc, delta_fitness, depth)
     delta_fitness = pgc['pgc_delta_fitness'][depth]
     evolved = evolve_physical(gp, pgc, depth)
     pgc = gp.pool.get(pgc['pgc'], None)
     while evolved and pgc is not None:
         depth += 1
-        xGC_evolvability(pgc, delta_fitness, depth)
+        _pGC_evolvability(pgc, delta_fitness, depth)
         _pGC_fitness(pgc, delta_fitness, depth)
         delta_fitness = pgc['pgc_delta_fitness'][depth]
         evolved = evolve_physical(gp, pgc, depth)
@@ -1000,8 +1007,26 @@ def _pGC_fitness(pgc, delta_fitness, depth):
     pgc['pgc_fitness'][depth] = (old_count * pgc['pgc_fitness'][depth] + pgc['pgc_previous_fitness'][depth]) / pgc['pgc_f_count'][depth]
 
 
-def xGC_evolvability(xgc, delta_fitness, depth):
-    """Update the evolvability of any type of GC.
+def _pGC_evolvability(pgc, delta_fitness, depth):
+    """Update the evolvability of a PGC.
+
+    pgc is modified.
+    -1.0 <= delta_fitness <= 1.0
+
+    Args
+    ----
+    pgc (pGC): PGC to update.
+    delta_fitness (float): Difference in fitness between this GC & its offspring.
+    depth (int): The layer in the environment pgc is at.
+    """
+    increase = 0.0 if delta_fitness < 0 else delta_fitness
+    old_count = pgc['pgc_e_count'][depth]
+    pgc['pgc_e_count'][depth] += 1
+    pgc['pgc_evolvability'][depth] = (old_count * pgc['pgc_evolvability'][depth] + increase) / pgc['pgc_e_count'][depth]
+
+
+def population_GC_evolvability(xgc, delta_fitness):
+    """Update the evolvability of a population GC.
 
     xgc is modified.
     -1.0 <= delta_fitness <= 1.0
@@ -1010,12 +1035,11 @@ def xGC_evolvability(xgc, delta_fitness, depth):
     ----
     xgc (pGC): xGC to update.
     delta_fitness (float): Difference in fitness between this GC & its offspring.
-    depth (int): The layer in the environment pgc is at.
     """
     increase = 0.0 if delta_fitness < 0 else delta_fitness
-    old_count = xgc['pgc_e_count'][depth]
-    xgc['pgc_e_count'][depth] += 1
-    xgc['pgc_evolvability'][depth] = (old_count * xgc['pgc_evolvability'][depth] + increase) / xgc['pgc_e_count'][depth]
+    old_count = xgc['e_count']
+    xgc['e_count'] += 1
+    xgc['evolvability'] = (old_count * xgc['evolvability'] + increase) / xgc['e_count']
 
 
 def evolve_physical(gp, pgc, depth):

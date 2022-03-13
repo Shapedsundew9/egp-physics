@@ -1285,8 +1285,7 @@ class gc_graph():
         # Find all the references to deleted rows and delete them
         for ep_hash in ref_list:
             refs = self.graph[ep_hash][ep_idx.REFERENCED_BY]
-            del_list = [pos for pos, ref in enumerate(refs) if ref[ref_idx.ROW] in rows]
-            for victim in del_list: del refs[victim]
+            self.graph[ep_hash][ep_idx.REFERENCED_BY] = [ref for ref in refs if ref[ref_idx.ROW] not in rows]
 
 
     def random_remove_dst_ep(self):

@@ -364,6 +364,7 @@ class gGC(_GC):
             self.setdefault('igraph', gc_graph(self.get('graph', {})))
             self.setdefault('evolved', [True])
             self.setdefault('generation', 0)
+            self.setdefault('offspring_count', 0)
             if 'inputs' not in self:
                 inputs = self['igraph'].input_if()
                 outputs = self['igraph'].output_if()
