@@ -182,6 +182,7 @@ def test_basic_insert_6_simple():
     """
     assert code in results['basic_insert_6'].keys()
 
+#TODO: Add reference sanity tests. Found a bug where circular references occured.
 
 def test_basic_insert_1_stats():
     """Check the statistics of case #1 in the basic scenario.

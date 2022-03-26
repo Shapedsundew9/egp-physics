@@ -9,7 +9,7 @@ from numpy.random import choice as np_choice
 from .ep_type import vtype
 from .gc_graph import (DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref,
                        ref_idx)
-from .gc_type import M_CONSTANT, eGC, interface_definition, gGC, mGC, M_MASK, PHYSICAL_PROPERTY, LAYER_COLUMNS, LAYER_COLUMNS_RESET
+from .gc_type import M_CONSTANT, eGC, interface_definition, gGC, mGC, is_pgc, NUM_PGC_LAYERS, M_MASK, PHYSICAL_PROPERTY, LAYER_COLUMNS, LAYER_COLUMNS_RESET
 from .utils.reference import random_reference
 
 _logger = getLogger(__name__)
@@ -32,6 +32,11 @@ _MATCH_TYPE_6_SQL = 'WHERE {input_types} <@ {itypes}::SMALLINT[] AND {output_typ
 _MATCH_TYPE_7_SQL = 'WHERE {input_types} && {itypes}::SMALLINT[] AND {output_types} && {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
 _MATCH_TYPE_8_SQL = 'WHERE {output_types} && {otypes}::SMALLINT[] ' + _EXCLUSION_LIMIT
 _MATCH_TYPE_9_SQL = 'WHERE {input_types} && {itypes}::SMALLINT[] ' + _EXCLUSION_LIMIT
+# Catch for when xtypes is an empty set.
+_MATCH_TYPE_10_SQL = 'WHERE {output_types} = {otypes}::SMALLINT[] ' + _EXCLUSION_LIMIT
+_MATCH_TYPE_11_SQL = 'WHERE {input_types} = {itypes}::SMALLINT[] ' + _EXCLUSION_LIMIT
+
+
 _MATCH_TYPES_SQL = (
     _MATCH_TYPE_0_SQL,
     _MATCH_TYPE_1_SQL,
@@ -42,7 +47,9 @@ _MATCH_TYPES_SQL = (
     _MATCH_TYPE_6_SQL,
     _MATCH_TYPE_7_SQL,
     _MATCH_TYPE_8_SQL,
-    _MATCH_TYPE_9_SQL
+    _MATCH_TYPE_9_SQL,
+    _MATCH_TYPE_10_SQL,
+    _MATCH_TYPE_11_SQL
 )
 _NUM_MATCH_TYPES = len(_MATCH_TYPES_SQL)
 
@@ -96,7 +103,7 @@ def _copy_clean_row(igc, rows, ep_type=None):
         def filter_func(x): return x[1][ep_idx.ROW] in rows
     copied_row = {k: copy(ep) for k, ep in filter(filter_func, igc.items())}
     for ep in copied_row.values():
-        ep[ep_idx.REFERENCED_BY].clear()
+        ep[ep_idx.REFERENCED_BY] = []
     return copied_row
 
 
@@ -476,7 +483,7 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
                     rgc['gcb_ref'] = target_gc['gca_ref']
                 else:
                     rgc['gcb_ref'] = target_gc['ref']
-                    #? fgc_dict[target_gc['ref']] = target_gc
+                    fgc_dict[target_gc['ref']] = target_gc
             else:  # Case 3
                 if _LOG_DEBUG:
                     _logger.debug("Case 3")
@@ -484,7 +491,7 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
                     rgc['gca_ref'] = target_gc['gca_ref']
                 else:
                     rgc['gca_ref'] = target_gc['ref']
-                    #? fgc_dict[target_gc['ref']] = target_gc
+                    fgc_dict[target_gc['ref']] = target_gc
                 rgc['gcb_ref'] = insert_gc['ref']
         else:  # Has row A & row B
             if above_row == 'A':  # Case 4
@@ -511,7 +518,7 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
                 fgc['ref'] = random_reference()
                 rgc['gca_ref'] = fgc['ref']
                 rgc['gcb_ref'] = insert_gc['ref']
-                #? fgc_dict[target_gc['ref']] = target_gc
+                fgc_dict[target_gc['ref']] = target_gc
 
         # rgc['ref'] must be new & replace any previous mentions
         # of target_gc['ref'] in fgc_dict[*]['gca_ref' or 'gcb_ref']
@@ -692,10 +699,11 @@ def _pgc_epilogue(gms, xgc):
         _logger.debug(f'PGC epilogue with xgc = {xgc}')
     if not xgc is None:
         rgc, fgcs = stablize(gms, xgc)
-        ggcs = [gGC(fgc, modified=True) for fgc in fgcs.values()]
-        ggcs.append(gGC(rgc, modified = True))
-        gms.add_to_gp_cache(ggcs)
-        return ggcs[-1]
+        if rgc is not None:
+            ggcs = [gGC(fgc, modified=True) for fgc in fgcs.values()]
+            ggcs.append(gGC(rgc, modified = True))
+            gms.add_to_gp_cache(ggcs)
+            return ggcs[-1]
 
 
 def gc_remove_all_connections(gms, tgc):
@@ -1065,9 +1073,15 @@ def evolve_physical(gp, pgc, depth):
     if not (pgc['pgc_f_count'][depth] & M_MASK):
         pgc['pgc_delta_fitness'][depth] = 0.0
         gp.layer_evolutions[depth] += 1
-        ppgc = select_pGC(gp, pgc, depth)
-        offspring = ppgc.exec((pgc,))
-        pGC_inherit(offspring, pgc, ppgc)
+
+        # TODO: Need a better data structure
+        pgcs = tuple(gc for gc in gp.pool.values() if is_pgc(gc))
+
+        ppgc = select_pGC(pgcs, pgc, depth + 1)
+        offspring = ppgc['exec']((pgc,))
+        if offspring is not None and offspring[0] is not None:
+            pGC_inherit(offspring[0], pgc, ppgc)
+            gp.add_to_gp_cache(offspring)
         return True
     return False
 
@@ -1090,6 +1104,8 @@ def select_pGC(pgcs, xgc, depth):
     # OPTIMIZATION: Weights & filtered_pool could be cached for a depth?
     # TODO: Selection based on the character of xgc
     weights = array([i['pgc_previous_fitness'][depth] for i in pgcs], float32)
+    if _LOG_DEBUG:
+        _logger.debug(f'PGC layer {depth} weights {weights}')
     weights /= sum(weights)
     return np_choice(pgcs, 1, False, weights)[0]
 
@@ -1112,12 +1128,11 @@ def pGC_inherit(child, parent, pgc):
     """
     # TODO: A better data structure would be quicker
     child['pgc_fitness'] = [f * _PGC_PARENTAL_PROTECTION_FACTOR for f in parent['pgc_fitness']]
-    child['pgc_f_count'] = [int(f) for f in parent['pgc_f_valid']]
+    child['pgc_f_count'] = [1] * NUM_PGC_LAYERS
     child['pgc_evolvability'] = [f * _PGC_PARENTAL_PROTECTION_FACTOR for f in parent['pgc_evolvability']]
-    child['pgc_e_count'] = [int(f) for f in parent['pgc_e_valid']]
+    child['pgc_e_count'] = [1] * NUM_PGC_LAYERS
     child['delta_fitness'] = [0.0] * M_CONSTANT
     child['pgc_previous_fitness'] = copy(child['pgc_fitness'])
-    child['f_valid'] = parent['f_valid']
     xGC_inherit(child, parent, pgc)
 
 
@@ -1140,7 +1155,8 @@ def population_GC_inherit(child, parent, pgc):
     child['evolvability'] = parent['evolvability'] * _POPULATION_PARENTAL_PROTECTION_FACTOR
     child['e_count'] = 1
     child['survivability'] = parent['survivability'] * _POPULATION_PARENTAL_PROTECTION_FACTOR
-    child['population'] = parent['population']
+    child['fitness'] = parent['fitness'] * _POPULATION_PARENTAL_PROTECTION_FACTOR
+    child['evolvability'] = parent['evolvability'] * _POPULATION_PARENTAL_PROTECTION_FACTOR
     xGC_inherit(child, parent, pgc)
 
 
@@ -1156,11 +1172,6 @@ def xGC_inherit(child, parent, pgc):
     parent (xGC): Parent of child.
     pgc (pGC): pGC that operated on parent to product child.
     """
-    child['fitness'] = copy(parent['fitness'])
-    child['evolvability'] = copy(parent['evolvability'])
-    if 'f_valid' in parent:
-        child['f_count'] = [int(fc > 0) for fc in parent['fcount']]
-        child['e_count'] = copy(child['f_count'])
     # TODO: What about survivability? Treat like the above/ something like it?
 
     child['population'] = parent['population']

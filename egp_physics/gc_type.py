@@ -139,7 +139,7 @@ def interface_definition(xputs, vt=vtype.TYPE_OBJECT):
     return xput_eps, xput_types, bytes([xput_types.index(x) for x in xput_eps])
 
 
-def interface_hash(input_eps, output_eps):
+def unordered_interface_hash(input_eps, output_eps):
     """Create a 64-bit hash of the population interface definition.
 
     The interface hash is order agnostic i.e.
@@ -161,6 +161,34 @@ def interface_hash(input_eps, output_eps):
         h.update(i.to_bytes(2, 'big'))
     for o in sorted(output_eps):
         h.update(o.to_bytes(2, 'big'))
+    a = int.from_bytes(h.digest(), 'big')
+    return (0x7FFFFFFFFFFFFFFF & a) - (a & (1 << 63))
+
+
+def ordered_interface_hash(input_types, output_types, inputs, outputs):
+    """Create a 64-bit hash of the population interface definition.
+
+    The interface hash is specific to the order and type in the inputs
+    and outputs. This is important in population individuals.
+
+    Args
+    ----
+    input_types (iterable(int)): Iterable of input EP types in ascending order.
+    output_types (iterable(int)): Iterable of output EP types in ascending order.
+    inputs (bytes): Indices into input_types for the input parameters.
+    outputs (bytes): Indices into output_types for the input parameters.
+
+    Returns
+    -------
+    (int): 64 bit hash as a signed 64 bit int.
+    """
+    h = blake2b(digest_size=8)
+    for i in input_types:
+        h.update(i.to_bytes(2, 'big'))
+    for o in sorted(output_types):
+        h.update(o.to_bytes(2, 'big'))
+    h.update(inputs)
+    h.update(outputs)
     a = int.from_bytes(h.digest(), 'big')
     return (0x7FFFFFFFFFFFFFFF & a) - (a & (1 << 63))
 
