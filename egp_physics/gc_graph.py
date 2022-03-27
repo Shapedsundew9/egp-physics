@@ -25,7 +25,7 @@ from graph_tool import Graph
 from graph_tool.draw import graph_draw
 from networkx import DiGraph, get_node_attributes, spring_layout
 
-from .ep_type import asstr, compatible, import_str, type_str, validate, REAL_EP_TYPE_VALUES, UNKNOWN_EP_TYPE_VALUE
+from .ep_type import asstr, compatible, import_str, type_str, validate, REAL_EP_TYPE_VALUES, UNKNOWN_EP_TYPE_VALUE, EP_TYPE_NAMES
 from .utils.text_token import register_token_code, text_token
 
 _logger = getLogger(__name__)
@@ -116,6 +116,7 @@ register_token_code('E01012', 'Endpoint {ref1} cannot reference row B {ref2} if 
 register_token_code('E01013', 'Row "P" length ({len_p}) must be the same as row "O" length ({len_o}) when "F" is defined.')
 register_token_code('E01014', 'Row "U" endpoint {u_ep} referenced by more than one endpoint {refs}.')
 register_token_code('E01015', 'Row "U" endpoint {u_ep} references a constant that does not exist {refs}.')
+register_token_code('E01016', 'Row "I" must contain at least one bool type source endpoint if "F" is defined.')
 
 register_token_code('I01000', '"I" row endpoint appended of UNKNOWN_EP_TYPE_VALUE.')
 register_token_code('I01001', '"I" row endpoint removed.')
@@ -1050,6 +1051,7 @@ class gc_graph():
                 a. Row 'B' cannot reference row A.
                 b. Row 'B' cannot be referenced in row 'O'.
                 c. Row 'P' must have the same number & type of elements as row 'O'.
+                d. Row 'I' must have at least 1 bool source
 
         Args
         ----
@@ -1173,6 +1175,12 @@ class gc_graph():
             len_row_p = len(list(filter(self.row_filter('P'), self.graph.values())))
             if len_row_p != self.num_outputs():
                 self.status.append(text_token({'E01013': {'len_p': len_row_p, 'len_o': self.num_outputs()}}))
+
+        # 14d
+        if self.has_f():
+            bools = [ep[ep_idx.TYPE] == EP_TYPE_NAMES['bool'] for ep in filter(self.row_filter('I'), self.graph.values())]
+            if not bools:
+                self.status.append(text_token({'E01016': {}}))
 
         if _LOGIT:
             if self.status:
