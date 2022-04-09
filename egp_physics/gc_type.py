@@ -22,8 +22,8 @@ from logging import DEBUG, NullHandler, getLogger
 
 from .ep_type import asint, vtype
 from .gc_graph import gc_graph
-from .execution import create_callable, exec_wrapper
 from .generic_validator import SCHEMA, generic_validator, random_reference
+
 
 _logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
@@ -87,6 +87,15 @@ LAYER_COLUMNS_RESET = {
     "e_count": 1,
     "f_count": 1
 }
+_GL_EXCLUDE_COLUMNS = (
+    'signature',
+    'gca',
+    'gcb',
+    'pgc',
+    'ancestor_a',
+    'ancestor_b',
+    'creator'
+)
 
 
 def _get_schema(t):
@@ -319,9 +328,6 @@ class eGC(_GC):
         elif 'graph' not in self:
             self['graph'] = self['igraph'].application_graph()
 
-        if not sv:
-            self.validate()
-
 
 class mGC(_GC):
     """Minimal GC type.
@@ -355,77 +361,6 @@ class mGC(_GC):
             outputs = self['igraph'].output_if()
             _, self['input_types'], self['inputs'] = interface_definition(inputs, vtype.EP_TYPE_INT)
             _, self['output_types'], self['outputs'] = interface_definition(outputs, vtype.EP_TYPE_INT)
-        if not sv:
-            self.validate()
-
-
-class gGC(_GC):
-    """Gene Pool GC type.
-
-    Gene pool GC types hold a lot of transient data.
-    """
-
-    validator = generic_validator(_get_schema(_GGC), allow_unknown=True)
-    higher_layer_cols = tuple((col for col in filter(lambda x: x[0] == '_', validator.schema.keys())))
-
-    def __init__(self, gc={}, modified=True, population=None, sv=True):
-        """Construct.
-
-        Ensure all fields are defined as required for the Gene Pool.
-
-        Args
-        ----
-        gc (a _GC dervived object): GC to ensure is eGC compliant.
-        sv (bool): Suppress validation. If True the eGC will not be validated on construction.
-        """
-        # TODO: Consider lazy loading fields
-        if isinstance(gc, gGC):
-            self = gc
-        else:
-            super().__init__(gc)
-            self.setdefault('modified', modified)
-            self.setdefault('population', population)
-            self.setdefault('pgc_ref', self._ref_from_sig('pgc'))
-            self.setdefault('ancestor_a_ref', self._ref_from_sig('ancestor_a'))
-            self.setdefault('gca_ref', self._ref_from_sig('gca'))
-            self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
-            self.setdefault('igraph', gc_graph(self.get('graph', {})))
-            self.setdefault('evolved', [True])
-            self.setdefault('generation', 0)
-            self.setdefault('offspring_count', 0)
-            if 'inputs' not in self:
-                inputs = self['igraph'].input_if()
-                outputs = self['igraph'].output_if()
-                _, self['input_types'], self['inputs'] = interface_definition(inputs, vtype.EP_TYPE_INT)
-                _, self['output_types'], self['outputs'] = interface_definition(outputs, vtype.EP_TYPE_INT)
-
-            # Every GC must have the callable created but only individuals get a wrapped version
-            self.setdefault('exec', create_callable(self))
-            if population:
-                self['exec'] = exec_wrapper(self['exec'])
-            for col in filter(lambda x: x[1:] in gc.keys(), gGC.higher_layer_cols):
-                gc[col] = copy(gc[col[1:]])
-
-            # PGCs have special fields in the Gene Pool
-            if is_pgc(self) and 'pgc_f_valid' not in self:
-                if _LOG_DEBUG:
-                    _logger.debug(f"{self['pgc_fitness']}")
-                self['pgc_delta_fitness'] = [0.0] * NUM_PGC_LAYERS
-                self['pgc_previous_fitness'] = copy(self['pgc_fitness'])
-                self['pgc_f_valid'] = [f > 0.0 for f in self['pgc_fitness']]
-            else:
-                self.setdefault('fitness', 0.0)
-                self.setdefault('survivability', 0.0)
-
-            if _LOG_DEBUG:
-                if self['ref'] == self['gca_ref']:
-                    raise ValueError('GC ref == GCA ref. A GC cannot self reference.')
-                if self['ref'] == self['gcb_ref']:
-                    raise ValueError('GC ref == GCB ref. A GC cannot self reference.')
-
-            # TODO: This should be logger based validation.
-            if not sv:
-                self.validate()
 
 
 def _md_string(gct, key):
@@ -442,8 +377,7 @@ def md_table():
     gcts = (
         _GC(sv=True),
         eGC(sv=True),
-        mGC(sv=True),
-        gGC(sv=True)
+        mGC(sv=True)
     )
     with open('gc_type_table.md', 'w') as file_ptr:
         file_ptr.write("GC Type Field Requirements\n")

@@ -9,7 +9,7 @@ from numpy.random import choice as np_choice
 from .ep_type import vtype
 from .gc_graph import (DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref,
                        ref_idx)
-from .gc_type import M_CONSTANT, eGC, interface_definition, gGC, mGC, is_pgc, NUM_PGC_LAYERS, M_MASK, PHYSICAL_PROPERTY, LAYER_COLUMNS, LAYER_COLUMNS_RESET
+from .gc_type import M_CONSTANT, eGC, interface_definition, mGC, is_pgc, NUM_PGC_LAYERS, M_MASK, PHYSICAL_PROPERTY, LAYER_COLUMNS, LAYER_COLUMNS_RESET
 from .utils.reference import random_reference
 
 _logger = getLogger(__name__)
@@ -1131,8 +1131,14 @@ def pGC_inherit(child, parent, pgc):
     child['pgc_f_count'] = [1] * NUM_PGC_LAYERS
     child['pgc_evolvability'] = [f * _PGC_PARENTAL_PROTECTION_FACTOR for f in parent['pgc_evolvability']]
     child['pgc_e_count'] = [1] * NUM_PGC_LAYERS
-    child['delta_fitness'] = [0.0] * M_CONSTANT
+    child['delta_fitness'] = [0.0] * M_CONSTANT #TODO: Should this be NUM_PGC_LAYERS?
     child['pgc_previous_fitness'] = copy(child['pgc_fitness'])
+
+    child['_pgc_fitness'] = [0.0] * NUM_PGC_LAYERS
+    child['_pgc_f_count'] = [0.0] * NUM_PGC_LAYERS
+    child['_pgc_evolvability'] = [0.0] * NUM_PGC_LAYERS
+    child['_pgc_e_count'] = [0.0] * NUM_PGC_LAYERS
+
     xGC_inherit(child, parent, pgc)
 
 

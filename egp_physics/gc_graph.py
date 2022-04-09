@@ -39,7 +39,7 @@ SOURCE_ROWS = ('I', 'C', 'A', 'B')
 
 
 def _REPR_LAMBDA(x): return x[1][ep_idx.INDEX]
-def _OUT_FUNC(x): return x[ep_idx.ROW] == 'O' and x[ep_idx.EP_TYPE] == SRC_EP
+def _OUT_FUNC(x): return x[ep_idx.ROW] == 'O' and x[ep_idx.EP_TYPE] == DST_EP
 def _ROW_U_FILTER(x): return x[ep_idx.ROW] == 'U'
 def _SRC_UNREF_FILTER(x): return x[ep_idx.EP_TYPE] == SRC_EP and not x[ep_idx.REFERENCED_BY]
 def _DST_UNREF_FILTER(x): return x[ep_idx.EP_TYPE] == DST_EP and not x[ep_idx.REFERENCED_BY]
@@ -1031,7 +1031,7 @@ class gc_graph():
 
         This function is not intended to be fast.
         Genetic code graphs MUST obey the following rules:
-            1. Have at least 1 output in 'O'.
+            1. DEPRECATED: Have at least 1 output in 'O'.
             2. a. All sources are connected or referenced by the unconnected 'U' row.
                b. 'U' row endpoints may only be referenced once
                c. 'U' row cannot reference a non-existent constant
@@ -1065,8 +1065,8 @@ class gc_graph():
         self.status = []
 
         # 1
-        if self.num_outputs() == 0:
-            self.status.append(text_token({'E01000': {}}))
+        # if self.num_outputs() == 0:
+        #    self.status.append(text_token({'E01000': {}}))
 
         # 2a.
         for row in filter(self.src_filter(self.unreferenced_filter()), self.graph.values()):
