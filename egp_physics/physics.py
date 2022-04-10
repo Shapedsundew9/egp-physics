@@ -11,6 +11,8 @@ from .gc_graph import (DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref,
                        ref_idx)
 from .gc_type import M_CONSTANT, eGC, interface_definition, mGC, is_pgc, NUM_PGC_LAYERS, M_MASK, PHYSICAL_PROPERTY, LAYER_COLUMNS, LAYER_COLUMNS_RESET
 from .utils.reference import random_reference
+from egp_population.gGC import gGC
+
 
 _logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
@@ -315,7 +317,7 @@ def _insert(igc_gcg, tgc_gcg, above_row):  # noqa: C901
                 _logger.debug("Case 4: Has rows A & B and insert above A")
             fgc.update(_copy_clean_row(tgc, 'IC'))
             fgc.update(_insert_as(igc, 'A'))
-            fgc.update(_move_row(tgc, 'A', None, 'B', None))
+            fgc.update(_move_row(tgc, 'A', None, 'B', None, True))
             fgc.update(_direct_connect(fgc, 'B', 'O'))
             fgc.update(_append_connect(fgc, 'A', 'O'))
             rgc.update(_direct_connect(rgc, 'I', 'A'))
@@ -325,7 +327,8 @@ def _insert(igc_gcg, tgc_gcg, above_row):  # noqa: C901
             if _LOG_DEBUG:
                 _logger.debug("Case 5: Has rows A & B and insert above B")
             fgc.update(_copy_clean_row(tgc, 'IC'))
-            fgc.update(_copy_row(tgc, 'A'))
+            fgc.update(_copy_row(tgc, 'A', DST_EP))
+            fgc.update(_copy_clean_row(tgc, 'A', SRC_EP))
             fgc.update(_insert_as(igc, 'B'))
             fgc.update(_direct_connect(fgc, 'A', 'O'))
             fgc.update(_append_connect(fgc, 'B', 'O'))
@@ -336,7 +339,8 @@ def _insert(igc_gcg, tgc_gcg, above_row):  # noqa: C901
             if _LOG_DEBUG:
                 _logger.debug("Case 6: Has rows A & B and insert above O")
             fgc.update(_copy_clean_row(tgc, 'IC'))
-            fgc.update(_copy_row(tgc, 'AB'))
+            fgc.update(_copy_row(tgc, 'AB', DST_EP))
+            fgc.update(_copy_clean_row(tgc, 'AB', SRC_EP))
             fgc.update(_direct_connect(fgc, 'A', 'O'))
             fgc.update(_append_connect(fgc, 'B', 'O'))
             rgc.update(_direct_connect(rgc, 'I', 'A'))
@@ -430,7 +434,9 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
     # throw a steady state exception.
     if insert_gc is None:
         if rgc_graph.is_stable():
-            if _LOG_DEBUG: _logger.debug('Target GC is stable & nothing to insert.')
+            if _LOG_DEBUG:
+                assert rgc_graph.validate()
+                _logger.debug('Target GC is stable & nothing to insert.')
             return (target_gc, {})
         if _LOG_DEBUG: _logger.debug('Target GC is unstable & nothing to insert.')
         work_stack = [steady_state_exception(gms, rgc)]
@@ -546,7 +552,9 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
                 if _LOG_DEBUG: _logger.debug(f"FGC ref {fgc['ref']} is unstable.")
                 work_stack.insert(0, steady_state_exception(gms, fgc))
             else:
-                if _LOG_DEBUG: _logger.debug(f"FGC ref {fgc['ref']} added to fgc_dict.")
+                if _LOG_DEBUG:
+                    assert(fgc_graph.validate())
+                    _logger.debug(f"FGC ref {fgc['ref']} added to fgc_dict.")
                 fgc_dict[fgc['ref']] = mGC(gc=fgc)
 
         if not rgc_steady:
@@ -554,10 +562,14 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
             work_stack.insert(0, steady_state_exception(gms, rgc))
         else:
             if new_tgc is None:
-                if _LOG_DEBUG: _logger.debug(f"Resultant GC defined {rgc['ref']}:\n {pformat(rgc)}")
+                if _LOG_DEBUG:
+                    assert rgc_graph.validate()
+                    _logger.debug(f"Resultant GC defined {rgc['ref']}:\n {pformat(rgc)}")
                 new_tgc = rgc
             else:
-                if _LOG_DEBUG: _logger.debug(f"RGC ref {rgc['ref']} added to fgc_dict.")
+                if _LOG_DEBUG:
+                    assert rgc_graph.validate()
+                    _logger.debug(f"RGC ref {rgc['ref']} added to fgc_dict.")
                 fgc_dict[rgc['ref']] = mGC(gc=rgc)
 
         if _LOG_DEBUG:
@@ -595,9 +607,8 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):
     if target_gc is not None:
         rgc, fgcs = stablize(gms, target_gc, insert_gc, above_row)
         ggcs = [gGC(fgc, modified=True) for fgc in fgcs.values()]
-        ggcs.append(gGC(rgc, modified = True))
-        gms.add_to_gp_cache(ggcs)
-        return ggcs[-1]
+        ggcs.insert(0, gGC(rgc, modified = True))
+        return ggcs
 
 
 def gc_stack(gms, top_gc, bottom_gc):
@@ -635,6 +646,28 @@ def gc_stack(gms, top_gc, bottom_gc):
         return bottom_gc
 
 
+def _clone(gc):
+    """Create a minimal close of gc.
+
+    Args
+    ----
+    gc (xGC): GC to clone
+
+    Returns
+    -------
+    (dict): Minimal clone of gc as a dict.
+    """
+    return {
+        'ancestor_a_ref': gc['ref'],
+        # If gc is a codon then it does not have a GCA
+        'gca_ref': gc['gca_ref'] if gc['gca_ref'] is not None else gc['ref'],
+        'gcb_ref': gc['gcb_ref'],
+        'graph': deepcopy(gc['graph']),
+        # More efficient than reconstructing
+        'igraph': deepcopy(gc['igraph'])
+    }
+
+
 def gc_remove(gms, tgc, abpo=None):
     """Remove row A, B, P or O from tgc['graph'] to create rgc.
 
@@ -659,10 +692,15 @@ def gc_remove(gms, tgc, abpo=None):
     -------
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
+    # FIXME: Can you move row 'O"?
     if tgc is not None:
-        rgc = eGC(tgc)
+        rgc = eGC(_clone(tgc))
+        if _LOG_DEBUG:
+            _logger.debug(f"Minimally cloned {tgc['ref']} to {rgc['ref']}")
         if abpo is None:
             abpo = choice('ABP')
+            if _LOG_DEBUG:
+                _logger.debug(f'Removing row {abpo}.')
         rgc_graph = rgc['igraph']
         rgc_graph.remove_rows(abpo)
         if abpo == 'A':
@@ -672,7 +710,8 @@ def gc_remove(gms, tgc, abpo=None):
             rgc['gca_ref'] = tgc['gca_ref']
             rgc['gcb_ref'] = None
         elif abpo == 'P':
-            rgc_graph.remove_rows('F')
+            rgc_graph.remove_rows('FP')
+        rgc_graph.normalize()
         return _pgc_epilogue(gms, rgc)
 
 
@@ -700,10 +739,10 @@ def _pgc_epilogue(gms, xgc):
     if not xgc is None:
         rgc, fgcs = stablize(gms, xgc)
         if rgc is not None:
+            # TODO: Yuk - need to de-mush physics & GP. gGC is a GP concept not a GMS one
             ggcs = [gGC(fgc, modified=True) for fgc in fgcs.values()]
-            ggcs.append(gGC(rgc, modified = True))
-            gms.add_to_gp_cache(ggcs)
-            return ggcs[-1]
+            ggcs.insert(0, gGC(rgc, modified = True))
+            return ggcs
 
 
 def gc_remove_all_connections(gms, tgc):
@@ -726,8 +765,11 @@ def gc_remove_all_connections(gms, tgc):
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
     if tgc is not None:
-        egc = eGC(tgc)
+        egc = eGC(_clone(tgc))
+        if _LOG_DEBUG:
+            _logger.debug(f"Minimally cloned {tgc['ref']} to {egc['ref']}")
         egc['igraph'].remove_all_connections()
+        egc['igraph'].normalize()
         return _pgc_epilogue(gms, egc)
 
 
@@ -751,8 +793,11 @@ def gc_add_input(gms, tgc):
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
     if tgc is not None:
-        egc = eGC(tgc)
+        egc = eGC(_clone(tgc))
+        if _LOG_DEBUG:
+            _logger.debug(f"Minimally cloned {tgc['ref']} to {egc['ref']}")
         egc['igraph'].add_input()
+        egc['igraph'].normalize()
         return _pgc_epilogue(gms, egc)
 
 
@@ -776,8 +821,11 @@ def gc_remove_input(gms, tgc):
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
     if tgc is not None:
-        egc = eGC(tgc)
+        egc = eGC(_clone(tgc))
+        if _LOG_DEBUG:
+            _logger.debug(f"Minimally cloned {tgc['ref']} to {egc['ref']}")
         egc['igraph'].remove_input()
+        egc['igraph'].normalize()
         return _pgc_epilogue(gms, egc)
 
 
@@ -801,8 +849,11 @@ def gc_add_output(gms, tgc):
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
     if tgc is not None:
-        egc = eGC(tgc)
+        egc = eGC(_clone(tgc))
+        if _LOG_DEBUG:
+            _logger.debug(f"Minimally cloned {tgc['ref']} to {egc['ref']}")
         egc['igraph'].add_output()
+        egc['igraph'].normalize()
         return _pgc_epilogue(gms, egc)
 
 
@@ -826,8 +877,11 @@ def gc_remove_output(gms, tgc):
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
     if tgc is not None:
-        egc = eGC(tgc)
+        egc = eGC(_clone(tgc))
+        if _LOG_DEBUG:
+            _logger.debug(f"Minimally cloned {tgc['ref']} to {egc['ref']}")
         egc['igraph'].add_output()
+        egc['igraph'].normalize()
         return _pgc_epilogue(gms, egc)
 
 
@@ -851,8 +905,11 @@ def gc_remove_constant(gms, tgc):
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
     if tgc is not None:
-        egc = eGC(tgc)
+        egc = eGC(_clone(tgc))
+        if _LOG_DEBUG:
+            _logger.debug(f"Minimally cloned {tgc['ref']} to {egc['ref']}")
         egc['igraph'].remove_constant()
+        egc['igraph'].normalize()
         return _pgc_epilogue(gms, egc)
 
 
@@ -870,6 +927,7 @@ def proximity_select(gms, xputs):
         b) From the candidates found by a) randomly select one*.
 
     In the event no candidates are found for type of match N p_count will be incremented
+
     for match N and type of match N+1 will be
     attempted. If no matches are found for match type 3 then None is returned.
 
@@ -986,14 +1044,14 @@ def pGC_fitness(gp, pgc, delta_fitness):
     _pGC_fitness(pgc, delta_fitness, depth)
     delta_fitness = pgc['pgc_delta_fitness'][depth]
     evolved = evolve_physical(gp, pgc, depth)
-    pgc = gp.pool.get(pgc['pgc'], None)
+    pgc = gp.pool.get(pgc['pgc_ref'], None)
     while evolved and pgc is not None:
         depth += 1
         _pGC_evolvability(pgc, delta_fitness, depth)
         _pGC_fitness(pgc, delta_fitness, depth)
         delta_fitness = pgc['pgc_delta_fitness'][depth]
         evolved = evolve_physical(gp, pgc, depth)
-        pgc = gp.pool.get(pgc['pgc'], None)
+        pgc = gp.pool.get(pgc['pgc_ref'], None)
 
 
 def _pGC_fitness(pgc, delta_fitness, depth):
@@ -1010,7 +1068,7 @@ def _pGC_fitness(pgc, delta_fitness, depth):
     """
     pgc['pgc_previous_fitness'][depth] = 0.0 if delta_fitness < 0 else delta_fitness
     old_count = pgc['pgc_f_count'][depth]
-    pgc['pgc_delta_fitness'][depth] += pgc['pgc_previous_fitness'][depth] - pgc['pgc_fitness'][depth]
+    pgc['pgc_delta_fitness'][depth] = pgc['pgc_previous_fitness'][depth] - pgc['pgc_fitness'][depth]
     pgc['pgc_f_count'][depth] += 1
     pgc['pgc_fitness'][depth] = (old_count * pgc['pgc_fitness'][depth] + pgc['pgc_previous_fitness'][depth]) / pgc['pgc_f_count'][depth]
 
@@ -1078,7 +1136,7 @@ def evolve_physical(gp, pgc, depth):
         pgcs = tuple(gc for gc in gp.pool.values() if is_pgc(gc))
 
         ppgc = select_pGC(pgcs, pgc, depth + 1)
-        offspring = ppgc['exec']((pgc,))
+        offspring = ppgc['exec']((pgc,))[0]
         if offspring is not None and offspring[0] is not None:
             pGC_inherit(offspring[0], pgc, ppgc)
             gp.add_to_gp_cache(offspring)
@@ -1136,7 +1194,7 @@ def pGC_inherit(child, parent, pgc):
 
     child['_pgc_fitness'] = [0.0] * NUM_PGC_LAYERS
     child['_pgc_f_count'] = [0.0] * NUM_PGC_LAYERS
-    child['_pgc_evolvability'] = [0.0] * NUM_PGC_LAYERS
+    child['_pgc_evolvability'] = [1.0] * NUM_PGC_LAYERS
     child['_pgc_e_count'] = [0.0] * NUM_PGC_LAYERS
 
     xGC_inherit(child, parent, pgc)
@@ -1158,11 +1216,23 @@ def population_GC_inherit(child, parent, pgc):
     parent (xGC): Parent of child.
     pgc (pGC): pGC that operated on parent to product child.
     """
-    child['evolvability'] = parent['evolvability'] * _POPULATION_PARENTAL_PROTECTION_FACTOR
-    child['e_count'] = 1
-    child['survivability'] = parent['survivability'] * _POPULATION_PARENTAL_PROTECTION_FACTOR
-    child['fitness'] = parent['fitness'] * _POPULATION_PARENTAL_PROTECTION_FACTOR
-    child['evolvability'] = parent['evolvability'] * _POPULATION_PARENTAL_PROTECTION_FACTOR
+    if _LOG_DEBUG:
+        if not all((field in child for field in ('fitness', 'survivability'))):
+            raise ValueError('Child GC has not been characterized.')
+        assert child['ancestor_a_ref'] == parent['ref']
+
+    # There is no way of characterising first
+    if parent['e_count'] == 1:
+        child['evolvability'] = 1.0
+        child['e_count'] = 1
+    else:
+        child['evolvability'] = parent['evolvability']
+        child['e_count'] = max((2, parent['e_count'] >> 1))
+
+    inherited_survivability = parent['survivability'] * _POPULATION_PARENTAL_PROTECTION_FACTOR
+    inherited_fitness = parent['fitness'] * _POPULATION_PARENTAL_PROTECTION_FACTOR
+    child['survivability'] = max((child['survivability'], inherited_survivability))
+    child['fitness'] = max((child['fitness'], inherited_fitness))
     xGC_inherit(child, parent, pgc)
 
 
@@ -1182,7 +1252,7 @@ def xGC_inherit(child, parent, pgc):
 
     child['population'] = parent['population']
     child['ancestor_a_ref'] = parent['ref']
-    child['ref_pgc'] = pgc['ref']
+    child['pgc_ref'] = pgc['ref']
     child['generation'] = parent['generation'] + 1
 
     parent['offspring_count'] += 1

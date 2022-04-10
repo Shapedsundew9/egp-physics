@@ -11,6 +11,7 @@ from copy import deepcopy
 from enum import IntEnum
 from logging import DEBUG, NullHandler, getLogger
 from math import sqrt
+from collections import Counter
 from pprint import pformat
 from random import choice, sample, randint
 
@@ -117,6 +118,8 @@ register_token_code('E01013', 'Row "P" length ({len_p}) must be the same as row 
 register_token_code('E01014', 'Row "U" endpoint {u_ep} referenced by more than one endpoint {refs}.')
 register_token_code('E01015', 'Row "U" endpoint {u_ep} references a constant that does not exist {refs}.')
 register_token_code('E01016', 'Row "I" must contain at least one bool type source endpoint if "F" is defined.')
+register_token_code('E01017', 'Source endpoint {ref1} cannot be connected to destination endpoint {ref2}.')
+register_token_code('E01018', 'Destination endpoint {dupe} is connected to multiple sources {refs}.')
 
 register_token_code('I01000', '"I" row endpoint appended of UNKNOWN_EP_TYPE_VALUE.')
 register_token_code('I01001', '"I" row endpoint removed.')
@@ -170,7 +173,7 @@ class ep_idx(IntEnum):
 
 
 def hash_ref(ref, ep_type):
-    """Convert an endpoint reference into an endpoint hash."""
+    """Convert an reference reference into an endpoint hash."""
     return ref[0] + str(ref[1]) + 'ds'[ep_type]
 
 
@@ -236,6 +239,8 @@ class gc_graph():
 
     """The sets of valid source rows for any given rows destinations"""
     src_rows = {
+        'I': tuple(),
+        'C': tuple(),
         'A': ('I', 'C'),
         'B': ('I', 'C', 'A'),
         'U': ('I', 'C', 'A', 'B'),
@@ -994,16 +999,28 @@ class gc_graph():
             6. Check a valid steady state has been achieved
         """
         _logger.debug("Normalising...")
+
+        # Remove all references to U before starting
+        row_u_tuple = tuple(filter(_ROW_U_FILTER, self.graph.values()))
+        for ep in row_u_tuple:
+            self._remove_ep(ep, check=False)
+        for ep in self.graph.values():
+            references = ep[ep_idx.REFERENCED_BY]
+            for idx, ref in enumerate(references):
+                if ref[ref_idx.ROW] == 'U':
+                    del references[idx]
+
         # 1 Connect all destinations to existing sources if possible
         self.connect_all()
 
         # 4 Reference all unconnected sources in row 'U'
-        row_u_tuple = tuple(filter(_ROW_U_FILTER, self.graph.values()))
-        for ep in row_u_tuple:
-            self._remove_ep(ep, check=False)
+        # First remove all existing row U endpoints
+        # Then any references to them
+        # Finally add the new unreferenced connections.
         unref = tuple(filter(_SRC_UNREF_FILTER, self.graph.values()))
         for i, ep in enumerate(unref):
             self._add_ep([DST_EP, 'U', i, ep[ep_idx.TYPE], [[*ep[1:3]]]])
+            ep[ep_idx.REFERENCED_BY] = [['U', i]]
 
         # 5 self.app_graph is regenerated
         self.app_graph = self.application_graph()
@@ -1035,7 +1052,8 @@ class gc_graph():
             2. a. All sources are connected or referenced by the unconnected 'U' row.
                b. 'U' row endpoints may only be referenced once
                c. 'U' row cannot reference a non-existent constant
-            3. All destinations are connected.
+            3a. All destinations are connected.
+            3b. All destinations are only connected once.
             4. Types are valid.
             5. Indexes within are contiguous and start at 0.
             6. Constant values are valid.
@@ -1045,8 +1063,10 @@ class gc_graph():
             10. All row 'I' endpoints are sources.
             11. All row 'O' & 'P' endpoints are destinations.
             12. Source types are compatible with destination types.
-            13. Rows destinations may only be connected to source rows as defined
-                by gc_graph.src_rows.
+            13a. Rows destinations may only be connected to source rows as defined
+                 by gc_graph.src_rows.
+            13b. Rows sources may not be connected to the same row or any row in
+                 gc_graph.src_rows.
             14. If row 'F' is defined:
                 a. Row 'B' cannot reference row A.
                 b. Row 'B' cannot be referenced in row 'O'.
@@ -1086,10 +1106,19 @@ class gc_graph():
                 if 'C' not in self.app_graph or ep[ep_idx.REFERENCED_BY][0][ref_idx.INDEX] >= len(self.app_graph['C']):
                     self.status.append(text_token({'E01015': {'u_ep': [*ep[1:3]], 'refs': ep[ep_idx.REFERENCED_BY]}}))
 
-        # 3
+        # 3a
         for row in filter(self.dst_filter(self.unreferenced_filter()), self.graph.values()):
             self.status.append(text_token({'E01001': {'ep_type': ['Destination', 'Source'][row[ep_idx.EP_TYPE]],
                                                       'ref': [row[ep_idx.ROW], row[ep_idx.INDEX]]}}))
+
+        # 3b
+        references = [hash_ref(ref, DST_EP) for ep in filter(self.src_filter(), self.graph.values()) for ref in ep[ep_idx.REFERENCED_BY]]
+        for dupe, _ in filter(lambda x: x[1] > 1, Counter(references).items()):
+            referencing_eps = []
+            for ep in filter(self.src_filter(), self.graph.values()):
+                if dupe in (hash_ref(ref, DST_EP) for ref in ep[ep_idx.REFERENCED_BY]):
+                    referencing_eps.append(ep)
+            self.status.append(text_token({'E01018': {'dupe': dupe, 'refs': referencing_eps}}))
 
         # 4
         for row in filter(lambda x: not validate(x[ep_idx.TYPE]), self.graph.values()):
@@ -1111,6 +1140,7 @@ class gc_graph():
                     self.status.append(text_token({'E01003': {'row': k, 'indices': sorted(ep)}}))
             if v:
                 if not (min(v) == 0 and max(v) == len(set(v)) - 1):
+                    _logger.debug(f'{ref_dict}')
                     self.status.append(text_token({'E01004': {'row': k, 'indices': sorted(v)}}))
 
         # 6
@@ -1148,11 +1178,18 @@ class gc_graph():
                 except StopIteration:
                     pass
 
-        # 13
+        # 13a
         for row in filter(self.dst_filter(), self.graph.values()):
             for ref in row[ep_idx.REFERENCED_BY]:
                 if ref[ref_idx.ROW] not in gc_graph.src_rows[row[ep_idx.ROW]]:
                     self.status.append(text_token({'E01010': {'ref1': [row[ep_idx.ROW], row[ep_idx.INDEX]],
+                                                              'ref2': [ref[ref_idx.ROW], ref[ref_idx.INDEX]]}}))
+
+        # 13b
+        for row in filter(self.src_filter(), self.graph.values()):
+            for ref in row[ep_idx.REFERENCED_BY]:
+                if ref[ref_idx.ROW] in gc_graph.src_rows[row[ep_idx.ROW]] or ref[ref_idx.ROW] == row:
+                    self.status.append(text_token({'E01017': {'ref1': [row[ep_idx.ROW], row[ep_idx.INDEX]],
                                                               'ref2': [ref[ref_idx.ROW], ref[ref_idx.INDEX]]}}))
 
         # 14a
@@ -1278,11 +1315,14 @@ class gc_graph():
 
     def remove_rows(self, rows):
         """Remove rows from the graph."""
+        # FIXME: This does not make sense. Removing a row is a bigger operation than just in the graph
         # Find all endpoints from the rows to delete, collect the endpoints that reference them
         # and delete the row endpoints.
         ref_list = []
         for k in tuple(filter(lambda x: x[0] in rows, self.graph.keys())):
             ref_list.extend([hash_ref(ref, not self.graph[k][ep_idx.EP_TYPE]) for ref in self.graph[k][ep_idx.REFERENCED_BY]])
+            if _LOGIT:
+                _logger.debug(f'Deleting endpoint {k}')
             del self.graph[k]
 
         # Update the row endpoint count tracking
@@ -1294,7 +1334,20 @@ class gc_graph():
         for ep_hash in ref_list:
             refs = self.graph[ep_hash][ep_idx.REFERENCED_BY]
             self.graph[ep_hash][ep_idx.REFERENCED_BY] = [ref for ref in refs if ref[ref_idx.ROW] not in rows]
+            if _LOGIT:
+                _logger.debug(f'Refactoring endpoint references from {refs} to {self.graph[ep_hash][ep_idx.REFERENCED_BY]}')
 
+        # If row A is removed and there is a row B, B becomes A.
+        if 'A' in rows and self.has_b() and 'B' not in rows:
+            self.graph.update({'A' + k[1:]: v for k, v in self.graph.items() if k[0] == 'B'})
+            for ref in (ref for ep in self.graph.values() for ref in ep[ep_idx.REFERENCED_BY] if ref[ref_idx.ROW] == 'B'):
+                ref[ref_idx.ROW] = 'A'
+            if 'B' in self.rows[SRC_EP]:
+                self.rows[SRC_EP]['A'] = self.rows[SRC_EP]['B']
+                del self.rows[SRC_EP]['B']
+            if 'B' in self.rows[DST_EP]:
+                self.rows[DST_EP]['A'] = self.rows[DST_EP]['B']
+                del self.rows[DST_EP]['B']
 
     def random_remove_dst_ep(self):
         """Randomly choose a destination row and randomly remove an endpoint."""
@@ -1436,6 +1489,9 @@ class gc_graph():
         -------
         (gc_graph): gC.
         """
+        # TODO: Stacking is inserting under row O which changes the output interface
+        # that means it cannot be done on a sub-GC - but to what end?
+
         # Create all the end points
         ep_list = []
         for ep in filter(gB.rows_filter(('I', 'O')), gB.graph.values()):
