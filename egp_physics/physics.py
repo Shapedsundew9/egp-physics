@@ -740,9 +740,12 @@ def _pgc_epilogue(gms, xgc):
         rgc, fgcs = stablize(gms, xgc)
         if rgc is not None:
             # TODO: Yuk - need to de-mush physics & GP. gGC is a GP concept not a GMS one
+            # 7-May-2022: Hmmm! But GP is a GMS and should fallback to GL when looking for a GC
+            # In fact gms in the parameters should be GP?
             ggcs = [gGC(fgc, modified=True) for fgc in fgcs.values()]
             ggcs.insert(0, gGC(rgc, modified = True))
             return ggcs
+    return (None,)
 
 
 def gc_remove_all_connections(gms, tgc):
@@ -1038,12 +1041,18 @@ def pGC_fitness(gp, pgc, delta_fitness):
     gp (gene_pool): The gene_pool that contains pGC and its creators.
     pgc (pGC): A physical GC.
     delta_fitness (float): The change in fitness of the GC pGC mutated.
+
+    Returns
+    -------
+    (int): The number of pGC evolutions that occured as a result of the
+        fitness update.
     """
     depth = 0
     _pGC_evolvability(pgc, delta_fitness, depth)
     _pGC_fitness(pgc, delta_fitness, depth)
     delta_fitness = pgc['pgc_delta_fitness'][depth]
     evolved = evolve_physical(gp, pgc, depth)
+    evolutions = int(evolved)
     pgc = gp.pool.get(pgc['pgc_ref'], None)
     while evolved and pgc is not None:
         depth += 1
@@ -1051,8 +1060,9 @@ def pGC_fitness(gp, pgc, delta_fitness):
         _pGC_fitness(pgc, delta_fitness, depth)
         delta_fitness = pgc['pgc_delta_fitness'][depth]
         evolved = evolve_physical(gp, pgc, depth)
+        evolutions += evolved
         pgc = gp.pool.get(pgc['pgc_ref'], None)
-
+    return evolutions
 
 def _pGC_fitness(pgc, delta_fitness, depth):
     """Update the fitness of the pGC.
@@ -1186,16 +1196,16 @@ def pGC_inherit(child, parent, pgc):
     """
     # TODO: A better data structure would be quicker
     child['pgc_fitness'] = [f * _PGC_PARENTAL_PROTECTION_FACTOR for f in parent['pgc_fitness']]
-    child['pgc_f_count'] = [1] * NUM_PGC_LAYERS
+    child['pgc_f_count'] = [2] * NUM_PGC_LAYERS
     child['pgc_evolvability'] = [f * _PGC_PARENTAL_PROTECTION_FACTOR for f in parent['pgc_evolvability']]
-    child['pgc_e_count'] = [1] * NUM_PGC_LAYERS
-    child['delta_fitness'] = [0.0] * M_CONSTANT #TODO: Should this be NUM_PGC_LAYERS?
+    child['pgc_e_count'] = [2] * NUM_PGC_LAYERS
+    child['pgc_delta_fitness'] = [0.0] * M_CONSTANT #TODO: Should this be NUM_PGC_LAYERS?
     child['pgc_previous_fitness'] = copy(child['pgc_fitness'])
 
     child['_pgc_fitness'] = [0.0] * NUM_PGC_LAYERS
-    child['_pgc_f_count'] = [0.0] * NUM_PGC_LAYERS
-    child['_pgc_evolvability'] = [1.0] * NUM_PGC_LAYERS
-    child['_pgc_e_count'] = [0.0] * NUM_PGC_LAYERS
+    child['_pgc_f_count'] = [0] * NUM_PGC_LAYERS
+    child['_pgc_evolvability'] = [0.0] * NUM_PGC_LAYERS
+    child['_pgc_e_count'] = [0] * NUM_PGC_LAYERS
 
     xGC_inherit(child, parent, pgc)
 
