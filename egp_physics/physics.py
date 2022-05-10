@@ -606,9 +606,10 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):
     """
     if target_gc is not None:
         rgc, fgcs = stablize(gms, target_gc, insert_gc, above_row)
-        ggcs = [gGC(fgc, modified=True) for fgc in fgcs.values()]
-        ggcs.insert(0, gGC(rgc, modified = True))
-        return ggcs
+        for fgc in fgcs.values():
+            gGC(fgc)
+        return gGC(rgc)
+    return (None,)
 
 
 def gc_stack(gms, top_gc, bottom_gc):
@@ -639,11 +640,11 @@ def gc_stack(gms, top_gc, bottom_gc):
         igraph = top_gc.stack(bottom_gc['igraph'])
         rgc = mGC(_gc, igraph=igraph)
         rgc['igraph'].normalize()
-        return _pgc_epilogue(gms, rgc)
-    if top_gc is not None and bottom_gc is None:
-        return top_gc
-    if top_gc is None and bottom_gc is not None:
-        return bottom_gc
+    elif top_gc is not None and bottom_gc is None:
+        rgc = top_gc
+    elif top_gc is None and bottom_gc is not None:
+        rgc = bottom_gc
+    return _pgc_epilogue(gms, rgc)
 
 
 def _clone(gc):
@@ -693,6 +694,7 @@ def gc_remove(gms, tgc, abpo=None):
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
     # FIXME: Can you move row 'O"?
+    rgc = None
     if tgc is not None:
         rgc = eGC(_clone(tgc))
         if _LOG_DEBUG:
@@ -712,7 +714,7 @@ def gc_remove(gms, tgc, abpo=None):
         elif abpo == 'P':
             rgc_graph.remove_rows('FP')
         rgc_graph.normalize()
-        return _pgc_epilogue(gms, rgc)
+    return _pgc_epilogue(gms, rgc)
 
 
 def _pgc_epilogue(gms, xgc):
@@ -736,15 +738,15 @@ def _pgc_epilogue(gms, xgc):
     """
     if _LOG_DEBUG:
         _logger.debug(f'PGC epilogue with xgc = {xgc}')
-    if not xgc is None:
+    if xgc is not None:
         rgc, fgcs = stablize(gms, xgc)
         if rgc is not None:
             # TODO: Yuk - need to de-mush physics & GP. gGC is a GP concept not a GMS one
             # 7-May-2022: Hmmm! But GP is a GMS and should fallback to GL when looking for a GC
             # In fact gms in the parameters should be GP?
-            ggcs = [gGC(fgc, modified=True) for fgc in fgcs.values()]
-            ggcs.insert(0, gGC(rgc, modified = True))
-            return ggcs
+            for fgc in fgcs.values():
+                gGC(fgc)
+            return gGC(rgc)
     return (None,)
 
 
@@ -767,13 +769,14 @@ def gc_remove_all_connections(gms, tgc):
     -------
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
+    egc = None
     if tgc is not None:
         egc = eGC(_clone(tgc))
         if _LOG_DEBUG:
             _logger.debug(f"Minimally cloned {tgc['ref']} to {egc['ref']}")
         egc['igraph'].remove_all_connections()
         egc['igraph'].normalize()
-        return _pgc_epilogue(gms, egc)
+    return _pgc_epilogue(gms, egc)
 
 
 def gc_add_input(gms, tgc):
@@ -795,13 +798,14 @@ def gc_add_input(gms, tgc):
     -------
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
+    egc = None
     if tgc is not None:
         egc = eGC(_clone(tgc))
         if _LOG_DEBUG:
             _logger.debug(f"Minimally cloned {tgc['ref']} to {egc['ref']}")
         egc['igraph'].add_input()
         egc['igraph'].normalize()
-        return _pgc_epilogue(gms, egc)
+    return _pgc_epilogue(gms, egc)
 
 
 def gc_remove_input(gms, tgc):
@@ -823,13 +827,14 @@ def gc_remove_input(gms, tgc):
     -------
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
+    egc = None
     if tgc is not None:
         egc = eGC(_clone(tgc))
         if _LOG_DEBUG:
             _logger.debug(f"Minimally cloned {tgc['ref']} to {egc['ref']}")
         egc['igraph'].remove_input()
         egc['igraph'].normalize()
-        return _pgc_epilogue(gms, egc)
+    return _pgc_epilogue(gms, egc)
 
 
 def gc_add_output(gms, tgc):
@@ -851,13 +856,14 @@ def gc_add_output(gms, tgc):
     -------
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
+    egc = None
     if tgc is not None:
         egc = eGC(_clone(tgc))
         if _LOG_DEBUG:
             _logger.debug(f"Minimally cloned {tgc['ref']} to {egc['ref']}")
         egc['igraph'].add_output()
         egc['igraph'].normalize()
-        return _pgc_epilogue(gms, egc)
+    return _pgc_epilogue(gms, egc)
 
 
 def gc_remove_output(gms, tgc):
@@ -879,13 +885,14 @@ def gc_remove_output(gms, tgc):
     -------
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
+    egc = None
     if tgc is not None:
         egc = eGC(_clone(tgc))
         if _LOG_DEBUG:
             _logger.debug(f"Minimally cloned {tgc['ref']} to {egc['ref']}")
         egc['igraph'].add_output()
         egc['igraph'].normalize()
-        return _pgc_epilogue(gms, egc)
+    return _pgc_epilogue(gms, egc)
 
 
 def gc_remove_constant(gms, tgc):
@@ -907,13 +914,14 @@ def gc_remove_constant(gms, tgc):
     -------
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
+    egc = None
     if tgc is not None:
         egc = eGC(_clone(tgc))
         if _LOG_DEBUG:
             _logger.debug(f"Minimally cloned {tgc['ref']} to {egc['ref']}")
         egc['igraph'].remove_constant()
         egc['igraph'].normalize()
-        return _pgc_epilogue(gms, egc)
+    return _pgc_epilogue(gms, egc)
 
 
 def proximity_select(gms, xputs):

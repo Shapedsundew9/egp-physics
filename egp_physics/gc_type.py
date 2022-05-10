@@ -202,7 +202,7 @@ def ordered_interface_hash(input_types, output_types, inputs, outputs):
     return (0x7FFFFFFFFFFFFFFF & a) - (a & (1 << 63))
 
 
-def ref_from_sig(sig):
+def ref_from_sig(sig, **kwargs):
     """Create a reference from a signature.
 
     Args
@@ -215,6 +215,17 @@ def ref_from_sig(sig):
     """
     a = int.from_bytes(sig[:8], 'little')
     return (0x7FFFFFFFFFFFFFFF & a) - (a & (1 << 63))
+
+
+def reference(**kwargs):
+    """Create a random reference.
+
+    Returns
+    -------
+    (int): A 64 bit reference.
+    """
+    return random_reference()
+
 
 
 def is_pgc(gc):
@@ -255,21 +266,52 @@ class _GC(dict):
     """
 
     validator = generic_validator(SCHEMA)
+    next_reference = None
+    ref_from_sig = None
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if _GC.next_reference is None:
+            _GC.next_reference = random_reference
+        if _GC.ref_from_sig is None:
+            _GC.ref_from_sig = ref_from_sig
         if 'ref' not in self:
-            self['ref'] = self._ref_from_sig('signature', random_ref=True)
+            self['ref'] = self.field_reference('signature', next_ref=True)
 
-    def _ref_from_sig(self, s, random_ref=False):
+    def field_reference(self, field, next_ref=False, **kwargs):
         """Make a reference from the first 8 bytes of the signature if it exists."""
-        if s not in self:
-            if random_ref:
-                return random_reference()
+        if field not in self:
+            if next_ref:
+                return _GC.next_reference(**kwargs)
             return None
-        elif self[s] is not None:
-            return ref_from_sig(self[s])
+        elif self[field] is not None:
+            return _GC.ref_from_sig(self[field], **kwargs)
         return None
+
+    @classmethod
+    def set_next_reference(cls, func):
+        """Set the next_reference() method for all GC types.
+
+        The next_reference() class method returns a valid reference to assign
+        to an arbitary GC.
+
+        Args
+        ----
+        func (callable): Function signature: int func(**kwargs) where int is a signed 64 bit value.
+        """
+        _GC.next_reference = func
+
+    @classmethod
+    def set_ref_from_sig(cls, func):
+        """Set the ref_from_sig() method for all GC types.
+
+        The ref_from_sig() class method returns a reproducible reference from a signature.
+
+        Args
+        ----
+        func (callable): Function signature: int func(bytes[32], **kwargs) where int is a signed 64 bit value.
+        """
+        _GC.ref_from_sig = func
 
     def validate(self):
         """Validate all required key:value pairs are correct."""
@@ -310,8 +352,8 @@ class eGC(_GC):
             graph_outputs, self['output_types'], self['outputs'] = interface_definition(outputs, vt)
         else:
             graph_outputs = []
-        self.setdefault('gca_ref', self._ref_from_sig('gca'))
-        self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
+        self.setdefault('gca_ref', self.field_reference('gca'))
+        self.setdefault('gcb_ref', self.field_reference('gcb'))
         self.setdefault('generation', 0)
         self['modified'] = True
         if 'igraph' not in self:
@@ -353,8 +395,8 @@ class mGC(_GC):
         """
         super().__init__(gc)
         self.setdefault('igraph', igraph)
-        self.setdefault('gca_ref', self._ref_from_sig('gca'))
-        self.setdefault('gcb_ref', self._ref_from_sig('gcb'))
+        self.setdefault('gca_ref', self.field_reference('gca'))
+        self.setdefault('gcb_ref', self.field_reference('gcb'))
         self.setdefault('generation', 0)
         if 'inputs' not in self:
             inputs = self['igraph'].input_if()

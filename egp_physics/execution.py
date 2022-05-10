@@ -13,9 +13,19 @@ _LOG_DEBUG = _logger.isEnabledFor(DEBUG)
 # Keys = import name: values = reference count
 import_references = {}
 
+# _GMS is a parameter of pGC codons which are dynamically created.
+_GMS = None
+def set_gms(gms):
+    """pGC's may need to find GC's in the GMS."""
+    global _GMS
+    _GMS = gms
+
 def name_func(ref):
     ref_str = ref.to_bytes(8,'big', signed=True).hex()
     return f'ref_{ref_str}'
+
+def callable_exists(ref):
+    return name_func(ref) in globals()
 
 def write_arg(iab, c):
     return "(" + ", ".join([str(c[arg[1]]) if arg[0] == 'C' else arg[0].lower() + "[" + str(arg[1]) + "]" for arg in iab]) + ",)"
@@ -81,6 +91,7 @@ def create_callable(gc):
         return exec_wrapper(globals()[global_name])
     if _LOG_DEBUG:
         _logger.warning(f'Function {global_name}() already exists!')
+        _logger.debug(f'gc creating existing exec function is {gc}.')
         assert 'exec' in gc
         assert gc['exec'] is not None
         assert False
@@ -95,8 +106,10 @@ def remove_callable(gc):
     gc['exec'] = None
     name = name_func(gc['ref'])
     if name in globals():
+        if _LOG_DEBUG:
+            _logger.debug(f'Deleting {name} from GP execution environment.')
         del globals()[name]
-    if 'meta_data' in gc and 'function' in gc['meta_data']:
+    if 'meta_data' in gc and isinstance(gc['meta_data'], dict) and 'function' in gc['meta_data']:
         python = gc['meta_data']['function']['python3']['0']
         if 'imports' in python:
             for impt in python['imports']:
@@ -120,8 +133,9 @@ def exec_wrapper(func):
     def wrapped(*args, **kwargs):
         try:
             retval = func(*args, **kwargs)
-        except:
-            retval = None
+        except Exception as e:
+            _logger.debug(f'Exception occured in execution wrapper for {func.__name__}: {e}')
+            retval = (None,)
         return retval
     return wrapped
 
