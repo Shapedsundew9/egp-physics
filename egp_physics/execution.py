@@ -24,9 +24,6 @@ def name_func(ref):
     ref_str = ref.to_bytes(8,'big', signed=True).hex()
     return f'ref_{ref_str}'
 
-def callable_exists(ref):
-    return name_func(ref) in globals()
-
 def write_arg(iab, c):
     return "(" + ", ".join([str(c[arg[1]]) if arg[0] == 'C' else arg[0].lower() + "[" + str(arg[1]) + "]" for arg in iab]) + ",)"
 
@@ -135,6 +132,10 @@ def exec_wrapper(func):
             retval = func(*args, **kwargs)
         except Exception as e:
             _logger.debug(f'Exception occured in execution wrapper for {func.__name__}: {e}')
+
+            # Catches issues with destroying GC exec functions e.g. 'name ref_xyz is not defined'
+            # TODO: Are there legitimate cases?
+            assert str(e)[-14:] != 'is not defined'
             retval = (None,)
         return retval
     return wrapped

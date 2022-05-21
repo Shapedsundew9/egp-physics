@@ -202,7 +202,7 @@ def ordered_interface_hash(input_types, output_types, inputs, outputs):
     return (0x7FFFFFFFFFFFFFFF & a) - (a & (1 << 63))
 
 
-def ref_from_sig(sig, **kwargs):
+def _ref_from_sig(sig, **kwargs):
     """Create a reference from a signature.
 
     Args
@@ -225,7 +225,6 @@ def reference(**kwargs):
     (int): A 64 bit reference.
     """
     return random_reference()
-
 
 
 def is_pgc(gc):
@@ -266,17 +265,13 @@ class _GC(dict):
     """
 
     validator = generic_validator(SCHEMA)
-    next_reference = None
-    ref_from_sig = None
+    next_reference = reference
+    ref_from_sig = _ref_from_sig
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if _GC.next_reference is None:
-            _GC.next_reference = random_reference
-        if _GC.ref_from_sig is None:
-            _GC.ref_from_sig = ref_from_sig
         if 'ref' not in self:
-            self['ref'] = self.field_reference('signature', next_ref=True)
+            self['ref'] = self.field_reference('signature', next_ref=True, **kwargs)
 
     def field_reference(self, field, next_ref=False, **kwargs):
         """Make a reference from the first 8 bytes of the signature if it exists."""

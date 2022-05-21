@@ -747,7 +747,7 @@ def _pgc_epilogue(gms, xgc):
             for fgc in fgcs.values():
                 gGC(fgc)
             return gGC(rgc)
-    return (None,)
+    return None
 
 
 def gc_remove_all_connections(gms, tgc):
@@ -1155,9 +1155,9 @@ def evolve_physical(gp, pgc, depth):
 
         ppgc = select_pGC(pgcs, pgc, depth + 1)
         offspring = ppgc['exec']((pgc,))[0]
-        if offspring is not None and offspring[0] is not None:
-            pGC_inherit(offspring[0], pgc, ppgc)
-            gp.add_to_gp_cache(offspring)
+        if offspring is not None:
+            pGC_inherit(offspring, pgc, ppgc)
+            gGC(offspring)
         return True
     return False
 
@@ -1237,7 +1237,6 @@ def population_GC_inherit(child, parent, pgc):
     if _LOG_DEBUG:
         if not all((field in child for field in ('fitness', 'survivability'))):
             raise ValueError('Child GC has not been characterized.')
-        assert child['ancestor_a_ref'] == parent['ref']
 
     # There is no way of characterising first
     if parent['e_count'] == 1:
@@ -1268,7 +1267,7 @@ def xGC_inherit(child, parent, pgc):
     """
     # TODO: What about survivability? Treat like the above/ something like it?
 
-    child['population'] = parent['population']
+    child['population_uid'] = parent['population_uid']
     child['ancestor_a_ref'] = parent['ref']
     child['pgc_ref'] = pgc['ref']
     child['generation'] = parent['generation'] + 1
