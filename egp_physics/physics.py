@@ -7,10 +7,8 @@ from numpy import array, float32
 from numpy.random import choice as np_choice
 
 from .ep_type import vtype
-from .gc_graph import (DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref,
-                       ref_idx)
-from .gc_type import M_CONSTANT, eGC, interface_definition, mGC, is_pgc, NUM_PGC_LAYERS, M_MASK, PHYSICAL_PROPERTY, LAYER_COLUMNS, LAYER_COLUMNS_RESET
-from .utils.reference import random_reference
+from .gc_graph import DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref, ref_idx
+from .gc_type import M_CONSTANT, eGC, interface_definition, mGC, is_pgc, NUM_PGC_LAYERS, M_MASK, _GC
 from egp_population.gGC import gGC
 
 
@@ -421,11 +419,14 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
     if above_row is None:
         above_row = 'ABO'[randint(0, 2)]
 
+
     rgc_graph = deepcopy(target_gc['igraph'])
     rgc = {
         'graph': rgc_graph.app_graph,
         'igraph': rgc_graph,
-        'ref': random_reference(),
+        'ancestor_a_ref': target_gc['ref'],
+        'ancestor_b_ref': None,
+        'ref': _GC.next_reference(),
         'gca_ref': target_gc['gca_ref'],
         'gcb_ref': target_gc['gcb_ref']
     }
@@ -442,6 +443,8 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
         work_stack = [steady_state_exception(gms, rgc)]
     else:
         if _LOG_DEBUG: _logger.debug('Inserting into Target GC.')
+        insert_gc.setdefault('ancestor_a_ref', None)
+        insert_gc.setdefault('ancestor_b_ref', None)
         work_stack = [(rgc, insert_gc, above_row)]
 
     fgc_dict = {}
@@ -449,8 +452,8 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
     while work_stack and work_stack[0] is not None:
         if _LOG_DEBUG:
             _logger.debug("Work stack depth: {}".format(len(work_stack)))
-        fgc = {}
-        rgc = {}
+        fgc = {'ancestor_a_ref': None, 'ancestor_b_ref': None}
+        rgc = {'ancestor_a_ref': None, 'ancestor_b_ref': None}
         target_gc, insert_gc, above_row = work_stack.pop(0)
         if _LOG_DEBUG:
             _logger.debug("Work: Target={}, Insert={}, Above Row={}".format(target_gc['ref'], insert_gc['ref'], above_row))
@@ -480,11 +483,13 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
                 _logger.debug("Case 1")
             rgc['gca_ref'] = insert_gc['ref']
             rgc['gcb_ref'] = None
+            rgc['ancestor_b_ref'] = insert_gc['ref']
         elif not tgc_graph.has_b():
             if above_row == 'A':  # Case 2
                 if _LOG_DEBUG:
                     _logger.debug("Case 2")
                 rgc['gca_ref'] = insert_gc['ref']
+                rgc['ancestor_b_ref'] = insert_gc['ref']
                 if target_gc['gca_ref'] is not None:
                     rgc['gcb_ref'] = target_gc['gca_ref']
                 else:
@@ -499,49 +504,57 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
                     rgc['gca_ref'] = target_gc['ref']
                     fgc_dict[target_gc['ref']] = target_gc
                 rgc['gcb_ref'] = insert_gc['ref']
+                rgc['ancestor_b_ref'] = insert_gc['ref']
         else:  # Has row A & row B
             if above_row == 'A':  # Case 4
                 if _LOG_DEBUG:
                     _logger.debug("Case 4")
                 fgc['gca_ref'] = insert_gc['ref']
                 fgc['gcb_ref'] = target_gc['gca_ref']
-                fgc['ref'] = random_reference()
+                fgc['ancestor_a_ref'] = insert_gc['ref']
+                fgc['ancestor_b_ref'] = target_gc['ref']
+                fgc['ref'] = _GC.next_reference()
                 rgc['gca_ref'] = fgc['ref']
                 rgc['gcb_ref'] = target_gc['gcb_ref']
+                rgc['ancestor_b_ref'] = fgc['ref']
             elif above_row == 'B':  # Case 5
                 if _LOG_DEBUG:
                     _logger.debug("Case 5")
                 fgc['gca_ref'] = target_gc['gca_ref']
                 fgc['gcb_ref'] = insert_gc['ref']
-                fgc['ref'] = random_reference()
+                fgc['ancestor_a_ref'] = insert_gc['ref']
+                fgc['ancestor_b_ref'] = target_gc['ref']
+                fgc['ref'] = _GC.next_reference()
                 rgc['gca_ref'] = fgc['ref']
                 rgc['gcb_ref'] = target_gc['gcb_ref']
+                rgc['ancestor_b_ref'] = fgc['ref']
             else:  # Case 6
                 if _LOG_DEBUG:
                     _logger.debug("Case 6")
                 fgc['gca_ref'] = target_gc['gca_ref']
                 fgc['gcb_ref'] = target_gc['gcb_ref']
-                fgc['ref'] = random_reference()
+                fgc['ancestor_a_ref'] = target_gc['ref']
+                fgc['ref'] = _GC.next_reference()
                 rgc['gca_ref'] = fgc['ref']
                 rgc['gcb_ref'] = insert_gc['ref']
+                rgc['ancestor_a_ref'] = insert_gc['ref']
+                rgc['ancestor_b_ref'] = fgc['ref']
                 fgc_dict[target_gc['ref']] = target_gc
 
         # rgc['ref'] must be new & replace any previous mentions
-        # of target_gc['ref'] in fgc_dict[*]['gca_ref' or 'gcb_ref']
+        # of target_gc['ref'] in fgc_dict[*][...ref fields...]
         # and the new_tgc if it is defined.
         # TODO: There must be a more efficient way of doing this
-        new_ref = rgc['ref'] = random_reference()
+        new_ref = rgc['ref'] = _GC.next_reference()
         old_ref = target_gc['ref']
         for nfgc in fgc_dict.values():
-            if nfgc['gca_ref'] == old_ref:
-                nfgc['gca_ref'] = new_ref
-            if nfgc['gcb_ref'] == old_ref:
-                nfgc['gcb_ref'] = new_ref
+            for ref in ('gca_ref', 'gcb_ref', 'ancestor_a_ref', 'ancestor_b_ref'):
+                if nfgc[ref] == old_ref:
+                    nfgc[ref] = new_ref
         if new_tgc is not None:
-            if new_tgc['gca_ref'] == old_ref:
-                new_tgc['gca_ref'] = new_ref
-            if new_tgc['gcb_ref'] == old_ref:
-                new_tgc['gcb_ref'] = new_ref
+            for ref in ('gca_ref', 'gcb_ref', 'ancestor_a_ref', 'ancestor_b_ref'):
+                if new_tgc[ref] == old_ref:
+                    new_tgc[ref] = new_ref
 
         # Check we have valid graphs
         # FGC is added to the work stack ahead of RGC
