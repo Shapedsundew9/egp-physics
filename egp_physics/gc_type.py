@@ -349,6 +349,8 @@ class eGC(_GC):
             graph_outputs = []
         self.setdefault('gca_ref', self.field_reference('gca'))
         self.setdefault('gcb_ref', self.field_reference('gcb'))
+        self.setdefault('ancestor_a_ref', None)
+        self.setdefault('ancestor_b_ref', None)
         self.setdefault('generation', 0)
         self['modified'] = True
         if 'igraph' not in self:
@@ -393,6 +395,8 @@ class mGC(_GC):
         self.setdefault('gca_ref', self.field_reference('gca'))
         self.setdefault('gcb_ref', self.field_reference('gcb'))
         self.setdefault('generation', 0)
+        self.setdefault('ancestor_a_ref', None)
+        self.setdefault('ancestor_b_ref', None)
         if 'inputs' not in self:
             inputs = self['igraph'].input_if()
             outputs = self['igraph'].output_if()

@@ -53,9 +53,9 @@ def callable_string(gc):
         format_dict.update({'i' + str(i): 'i[{}]'.format(i) for i in range(len(gc['inputs']))})
         code = gc['meta_data']['function']['python3']['0']
         if 'code' in code: string += "\t" + code['code'].format(**format_dict) + "\n"
-        formated_inline = code['inline'].format(**format_dict)
-        if _LOG_DEBUG: string += f"\t_logger.debug(f\"{gc['ref']}: {formated_inline} = {{{formated_inline}}}\")\n"
-        string += "\treturn (" + formated_inline + ",)\n\n\n"
+        formatted_inline = code['inline'].format(**format_dict)
+        if _LOG_DEBUG: string += f"\t_logger.debug(f\"{gc['ref']}: {formatted_inline} = {{{formatted_inline}}}\")\n"
+        string += "\treturn (" + formatted_inline + ",)\n\n\n"
     if _LOG_DEBUG: _logger.debug(f"Callable string created:\n{string}")
     return string
 
