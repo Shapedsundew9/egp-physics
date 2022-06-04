@@ -9,7 +9,7 @@ from numpy.random import choice as np_choice
 from .ep_type import vtype
 from .gc_graph import DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref, ref_idx
 from .gc_type import M_CONSTANT, eGC, interface_definition, mGC, is_pgc, NUM_PGC_LAYERS, M_MASK, _GC
-from egp_population.gGC import gGC
+from egp_population.gGC import gGC, _gGC
 
 
 _logger = getLogger(__name__)
@@ -619,9 +619,8 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):
     """
     if target_gc is not None:
         rgc, fgcs = stablize(gms, target_gc, insert_gc, above_row)
-        for fgc in fgcs.values():
-            gGC(fgc)
-        return gGC(rgc)
+        ggcs = gGC((rgc, *fgcs.values()))
+        return ggcs[0]
     return (None,)
 
 
@@ -757,9 +756,8 @@ def _pgc_epilogue(gms, xgc):
             # TODO: Yuk - need to de-mush physics & GP. gGC is a GP concept not a GMS one
             # 7-May-2022: Hmmm! But GP is a GMS and should fallback to GL when looking for a GC
             # In fact gms in the parameters should be GP?
-            for fgc in fgcs.values():
-                gGC(fgc)
-            return gGC(rgc)
+            ggcs = gGC((rgc, *fgcs.values()))
+            return ggcs[0]
     return None
 
 
@@ -1169,8 +1167,10 @@ def evolve_physical(gp, pgc, depth):
         ppgc = select_pGC(pgcs, pgc, depth + 1)
         offspring = ppgc['exec']((pgc,))[0]
         if offspring is not None:
+            if _LOG_DEBUG:
+                assert isinstance(offspring, _gGC)
             pGC_inherit(offspring, pgc, ppgc)
-            gGC(offspring)
+            # gGC(offspring) - offspring should already be a gGC shouldn't it?
         return True
     return False
 

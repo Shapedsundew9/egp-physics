@@ -2,18 +2,21 @@
 
 from logging import getLogger, NullHandler, DEBUG, captureWarnings
 from .ep_type import asstr
+from .gc_graph import conn_idx, const_idx, ref_idx, ep_idx
+
 
 _logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
 captureWarnings(True)
 _LOG_DEBUG = _logger.isEnabledFor(DEBUG)
 
+
 # Count the number of references to each imported object
 # If it reaches 0 the import can be removed.
 # Keys = import name: values = reference count
 import_references = {}
 
-# _GMS is a parameter of pGC codons which are dynamically created.
+# GMS is a parameter of pGC codons which are dynamically created.
 _GMS = None
 def set_gms(gms):
     """pGC's may need to find GC's in the GMS."""
@@ -27,8 +30,72 @@ def name_func(ref):
 def write_arg(iab, c):
     return "(" + ", ".join([str(c[arg[1]]) if arg[0] == 'C' else arg[0].lower() + "[" + str(arg[1]) + "]" for arg in iab]) + ",)"
 
-def callable_string(gc):
-    # TODO: Add a depth parameter that generates functions that have less codons as single functions.
+
+def code_body(gc, gpc, max_depth):
+    """Create a string representing the code body of the callable for gc.
+
+    The code body naming convention is each rows output is labelled with the
+    lower case row letter followed by f"_{gc['ref']}".
+
+    Args
+    ----
+    gc (gGC): The gGC for which to define the callable
+    gpc (GPC): The Gene Pool Cache from which to retrieve any sub-GC's
+    max_depth (int): The maximum number of codons in the function
+
+    Returns
+    -------
+    (str) The code body string for gc
+    """
+    graph = gc['igraph'].app_graph
+    ref_str = f"{gc['ref']:08x}"
+    space = max_depth
+    if gc.get('meta_data', None) is None or not 'function' in gc['meta_data']:
+        constants = '(\n\t\t' + ',\n\t\t'.join(f'{c[const_idx.VALUE]}' for c in graph['C']) + '\n\t)\n' if 'C' in graph else None
+        space -= len(constants) > 0
+
+        # Get the code body of GCx. Create them if need be.
+        for gcx_ref in ('gca_ref', 'gcb_ref'):
+            if gc.get(gcx_ref, None) is not None:
+                gcx = gpc[gc[gcx_ref]]
+                if gcx.get('lc', None) is None:
+                    create_callable(gcx, gpc, max_depth)
+
+        # If GCA exists check there is enough room without exceeding max_depth
+        # not forgetting GCB will need at least 1 line if it exists.
+        if gc.get('gca_ref', None) is not None:
+            gca = gpc[gc[gcx_ref]]
+            if gca['lc'] < space or (gc['lc'] <= space and gc.get('gcb_ref', None) is None):
+
+                # GCA rows are now labelled with a 1 to distinguish them from the GC's rows
+                gca_cb = gca['cb'].replace('_0', '_1')
+
+                # GCA's destination endpoints are labelled i_0[n] in gca_cb
+                # Map this GC's higher row (I or C) to i_0[n]
+                for n, ep in enumerate(graph['A']):
+                    gca_ep = gca_ep.replace(f'i_0[{n}]', ep[conn_idx.ROW].lower() + '_0[' + str(ep[conn_idx.INDEX]) + ']')
+
+
+
+
+
+
+def callable_string(gc, gpc, max_depth):
+    """Create a string that can be exec()'s into a callable function.
+
+    Callables are optimised to reduce call depth. sub-GC's are inlined up to
+    a maximum function size of max_depth codons.
+
+    Args
+    ----
+    gc (gGC): The gGC for which to define the callable
+    gpc (GPC): The Gene Pool Cache from which to retrieve any sub-GC's
+    max_depth (int): The maximum number of codons in the function
+
+    Returns
+    -------
+    (str) The string defining the callable function for gc
+    """
     string = "# ref: " + str(gc['ref']) + "\n"
     string += "# i = (" + ", ".join((asstr(i) for i in gc['igraph'].input_if())) + ")\n"
     string += "def " + name_func(gc['ref'])
@@ -59,11 +126,29 @@ def callable_string(gc):
     if _LOG_DEBUG: _logger.debug(f"Callable string created:\n{string}")
     return string
 
-def create_callable(gc):
+def create_callable(gc, gpc, max_depth=20):
     """Create a callable function from a gGC in the global namespace.
 
     Since functions are added to the global namespace multiple GP instances
     may create the same function.
+
+    Callables are optimised to reduce call depth. sub-GC's are inlined up to
+    a maximum function size of max_depth codons.
+
+    Any imports specified are added to the global imports.
+
+    The callable is wrapped in an execution wrapper to manage any exceptions
+    it may raise.
+
+    Args
+    ----
+    gc (gGC): The gGC for which to define the callable
+    gpc (GPC): The Gene Pool Cache from which to retrieve any sub-GC's
+    max_depth (int): The maximum number of codons in the function
+
+    Returns
+    -------
+    (callable) The callable function for gc
     """
     global import_references
     global_name = name_func(gc['ref'])
@@ -84,8 +169,9 @@ def create_callable(gc):
                     else:
                         import_references[impt['name']] += 1
 
-        exec(callable_string(gc), globals())
+        exec(callable_string(gc, gpc, max_depth), globals())
         return exec_wrapper(globals()[global_name])
+
     if _LOG_DEBUG:
         _logger.warning(f'Function {global_name}() already exists!')
         _logger.debug(f'gc creating existing exec function is {gc}.')
