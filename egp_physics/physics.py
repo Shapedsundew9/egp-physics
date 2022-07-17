@@ -9,6 +9,7 @@ from numpy.random import choice as np_choice
 from .ep_type import vtype
 from .gc_graph import DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref, ref_idx
 from .gc_type import M_CONSTANT, eGC, interface_definition, mGC, is_pgc, NUM_PGC_LAYERS, M_MASK, _GC
+from .execution import create_callable
 from egp_population.gGC import gGC, _gGC
 
 
@@ -16,6 +17,10 @@ _logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
 _LOG_DEBUG = _logger.isEnabledFor(DEBUG)
 
+# TODO: Put somewhere common
+_OVER_MAX = 1 << 64
+_MASK = _OVER_MAX - 1
+ref_str = lambda x: f"{(_OVER_MAX + x) & _MASK:016x}"
 
 # Steady state exception filters.
 _EXCLUSION_LIMIT =  ' AND NOT ({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT 1'
@@ -1165,7 +1170,15 @@ def evolve_physical(gp, pgc, depth):
         pgcs = tuple(gc for gc in gp.pool.values() if is_pgc(gc))
 
         ppgc = select_pGC(pgcs, pgc, depth + 1)
-        offspring = ppgc['exec']((pgc,))[0]
+        wrapped_ppgc_callable = create_callable(ppgc, gp.pool)
+        result = wrapped_ppgc_callable((pgc,))
+        if result is None:
+            # pGC went pop - should not happen very often
+            _logger.warning(f"ppGC {ref_str(pgc['ref'])} threw an exception when called.")
+            offspring = None
+        else:
+            offspring = result[0]
+
         if offspring is not None:
             if _LOG_DEBUG:
                 assert isinstance(offspring, _gGC)
