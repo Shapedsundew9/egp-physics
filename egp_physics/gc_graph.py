@@ -7,6 +7,10 @@ Description: Genetic code graphs define how genetic codes are connected together
 defines the rules of the connectivity (the "physics") i.e. what is possible to observe or occur.
 """
 
+# Needed to prevent something pulling in GtK 4.0 and graph_tool complaining.
+import gi
+gi.require_version('Gtk', '3.0')
+
 from copy import deepcopy
 from enum import IntEnum
 from logging import DEBUG, NullHandler, getLogger

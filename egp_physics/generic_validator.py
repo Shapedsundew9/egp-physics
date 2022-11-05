@@ -18,7 +18,7 @@ from os.path import dirname, join
 from pprint import pformat
 from random import choice, getrandbits
 
-from .utils.base_validator import BaseValidator
+from .utils.base_validator import base_validator
 
 with open(join(dirname(__file__), "formats/generic_gc_format.json"), "r") as file_ptr:
     SCHEMA = load(file_ptr)
@@ -57,7 +57,7 @@ def define_signature(gc):
     return sha256(string.encode()).hexdigest()
 
 
-class generic_validator(BaseValidator):
+class generic_validator(base_validator):
     """Generic validator of _GC classes."""
 
     # TODO: Make errors ValidationError types for full disclosure

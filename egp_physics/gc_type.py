@@ -241,6 +241,7 @@ def is_pgc(gc):
     if _LOG_DEBUG:
         # More juicy test for consistency
         # TODO: More conditions can be added
+        # Check the physical property?
         it = gc.get('input_types', [])
         i = gc.get('inputs', [])
         ot = gc.get('output_types', [])
