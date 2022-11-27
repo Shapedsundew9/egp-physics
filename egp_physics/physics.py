@@ -11,7 +11,7 @@ from typing import Union
 
 from .ep_type import vtype
 from .gc_graph import DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref, ref_idx
-from .gc_type import M_CONSTANT, eGC, interface_definition, mGC, is_pgc, NUM_PGC_LAYERS, M_MASK, _GC
+from .gc_type import M_CONSTANT, eGC, interface_definition, mGC, is_pgc, NUM_PGC_LAYERS, M_MASK, _GC, ref_str
 from .execution import create_callable
 from egp_population.gGC import gGC, _gGC
 from egp_population.gene_pool_cache import gene_pool_cache
@@ -21,11 +21,6 @@ from egp_population.gene_pool_cache import gene_pool_cache
 _logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
 _LOG_DEBUG = _logger.isEnabledFor(DEBUG)
-
-# TODO: Put somewhere common
-_OVER_MAX = 1 << 64
-_MASK = _OVER_MAX - 1
-ref_str = lambda x: f"{(_OVER_MAX + x) & _MASK:016x}"
 
 # Steady state exception filters.
 _EXCLUSION_LIMIT =  ' AND NOT ({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT 1'
@@ -175,7 +170,7 @@ def _direct_connect(igc, src_row, dst_row):
     """
     connected_row = {}
     def filter_func(x): return x[ep_idx.EP_TYPE] and x[ep_idx.ROW] == src_row
-    for src_ep in tuple(filter(filter_func, igc.values())):
+    for src_ep in filter(filter_func, igc.values()):
         dst_ep = [DST_EP, dst_row, src_ep[ep_idx.INDEX], src_ep[ep_idx.TYPE], [[src_row, src_ep[ep_idx.INDEX]]]]
         connected_row[hash_ep(dst_ep)] = dst_ep
     return connected_row
@@ -325,7 +320,7 @@ def _insert(igc_gcg, tgc_gcg, above_row):  # noqa: C901
                 _logger.debug("Case 4: Has rows A & B and insert above A")
             fgc.update(_copy_clean_row(tgc, 'IC'))
             fgc.update(_insert_as(igc, 'A'))
-            fgc.update(_move_row(tgc, 'A', None, 'B', None, True))
+            fgc.update(_move_row(tgc, 'A', None, 'B', None))
             fgc.update(_direct_connect(fgc, 'B', 'O'))
             fgc.update(_append_connect(fgc, 'A', 'O'))
             rgc.update(_direct_connect(rgc, 'I', 'A'))
@@ -352,6 +347,7 @@ def _insert(igc_gcg, tgc_gcg, above_row):  # noqa: C901
             fgc.update(_direct_connect(fgc, 'A', 'O'))
             fgc.update(_append_connect(fgc, 'B', 'O'))
             rgc.update(_direct_connect(rgc, 'I', 'A'))
+            rgc.update(_move_row(fgc, 'O', None, 'A', SRC_EP, True))
             rgc.update(_insert_as(igc, 'B'))
             rgc.update(_copy_clean_row(tgc, 'O'))
 
@@ -359,7 +355,9 @@ def _insert(igc_gcg, tgc_gcg, above_row):  # noqa: C901
     # gc_graph normalization is forced to try and avoid the inevitable steady
     # state exception.
     if _LOG_DEBUG:
-        _logger.debug("Pre-completed rgc:\n{}".format(pformat(rgc)))
+        _logger.debug(f"tgc ({type(tgc_gcg)}):\n{pformat(tgc_gcg)}")
+        _logger.debug(f"igc ({type(tgc_gcg)}):\n{pformat(igc_gcg)}")
+        _logger.debug(f"Pre-completed rgc ({type(rgc)}):\n{pformat(rgc)}")
     if not tgc_gcg.has_a():
         rgc_graph = gc_graph()
         rgc_graph.inject_graph(rgc)
@@ -466,7 +464,7 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
         rgc = {'ancestor_a_ref': None, 'ancestor_b_ref': None}
         target_gc, insert_gc, above_row = work_stack.pop(0)
         if _LOG_DEBUG:
-            _logger.debug("Work: Target={}, Insert={}, Above Row={}".format(target_gc['ref'], insert_gc['ref'], above_row))
+            _logger.debug(f"Work: Target={ref_str(target_gc['ref'])}, Insert={ref_str(insert_gc['ref'])}, Above Row={above_row}")
         # TODO: Get rid of None (make it None)
 
         # Insert into the graph
@@ -560,7 +558,7 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
         # TODO: There must be a more efficient way of doing this
         new_ref = rgc['ref'] = _GC.next_reference()
         old_ref = target_gc['ref'] 
-        if _LOG_DEBUG: _logger.debug(f"Replacing {old_ref} with {new_ref}.")
+        if _LOG_DEBUG: _logger.debug(f"Replacing {ref_str(old_ref)} with {ref_str(new_ref)}.")
         for nfgc in fgc_dict.values():
             for ref in ('gca_ref', 'gcb_ref', 'ancestor_a_ref', 'ancestor_b_ref'):
                 if nfgc[ref] == old_ref:
@@ -576,34 +574,35 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
         # (i.e. does not end up being the RGC of an unstable FGC)
         if fgc_graph:
             if not fgc_steady:
-                if _LOG_DEBUG: _logger.debug(f"FGC ref {fgc['ref']} is unstable.")
+                if _LOG_DEBUG: _logger.debug(f"FGC ref {ref_str(fgc['ref'])} is unstable.")
                 work_stack.insert(0, steady_state_exception(gms, fgc))
             else:
                 if _LOG_DEBUG:
                     assert(fgc_graph.validate())
-                    _logger.debug(f"FGC ref {fgc['ref']} added to fgc_dict.")
+                    _logger.debug(f"FGC ref {ref_str(fgc['ref'])} added to fgc_dict.")
                 fgc_dict[fgc['ref']] = mGC(gc=fgc)
 
         if not rgc_steady:
-            if _LOG_DEBUG: _logger.debug(f"RGC ref {rgc['ref']} is unstable.")
+            if _LOG_DEBUG: _logger.debug(f"RGC ref {ref_str(rgc['ref'])} is unstable.")
             work_stack.insert(0, steady_state_exception(gms, rgc))
         else:
             if new_tgc is None:
                 if _LOG_DEBUG:
                     assert rgc_graph.validate()
-                    _logger.debug(f"Resultant GC defined {rgc['ref']}:\n {pformat(rgc)}")
+                    _logger.debug(f"Resultant GC defined:\n{mGC(gc=rgc)}")
                 new_tgc = rgc
             else:
                 if _LOG_DEBUG:
                     assert rgc_graph.validate()
-                    _logger.debug(f"RGC ref {rgc['ref']} added to fgc_dict.")
+                    _logger.debug(f"RGC ref {ref_str(rgc['ref'])} added to fgc_dict.")
                 fgc_dict[rgc['ref']] = mGC(gc=rgc)
 
         if _LOG_DEBUG:
-            _logger.debug("fgc_dict: {}".format(list(fgc_dict.keys())))
+            _logger.debug(f"fgc_dict: {[ref_str(x) for x in fgc_dict.keys()]}")
 
     if _LOG_DEBUG:
-        _logger.debug("fgc_dict details:\n{}".format(pformat(fgc_dict)))
+        slash_n = '\n'
+        _logger.debug(f"fgc_dict details:\n{slash_n.join(ref_str(k) + ':' + slash_n + str(v) for k, v in fgc_dict.items())}")
         #TODO: target_gc & new_tgc interface must be the same. Validate.
 
     return (None, None) if work_stack else (new_tgc, fgc_dict)
@@ -724,7 +723,7 @@ def gc_remove(gms, tgc, abpo=None):
     if tgc is not None:
         rgc = eGC(_clone(tgc))
         if _LOG_DEBUG:
-            _logger.debug(f"Minimally cloned {tgc['ref']} to {rgc['ref']}")
+            _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(rgc['ref'])}")
         if abpo is None:
             abpo = choice('ABP')
             if _LOG_DEBUG:
@@ -798,7 +797,7 @@ def gc_remove_all_connections(gms, tgc):
     if tgc is not None:
         egc = eGC(_clone(tgc))
         if _LOG_DEBUG:
-            _logger.debug(f"Minimally cloned {tgc['ref']} to {egc['ref']}")
+            _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
         egc['igraph'].remove_all_connections()
         egc['igraph'].normalize()
     return _pgc_epilogue(gms, egc)
@@ -827,7 +826,7 @@ def gc_add_input(gms, tgc):
     if tgc is not None:
         egc = eGC(_clone(tgc))
         if _LOG_DEBUG:
-            _logger.debug(f"Minimally cloned {tgc['ref']} to {egc['ref']}")
+            _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
         egc['igraph'].add_input()
         egc['igraph'].normalize()
     return _pgc_epilogue(gms, egc)
@@ -856,7 +855,7 @@ def gc_remove_input(gms, tgc):
     if tgc is not None:
         egc = eGC(_clone(tgc))
         if _LOG_DEBUG:
-            _logger.debug(f"Minimally cloned {tgc['ref']} to {egc['ref']}")
+            _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
         egc['igraph'].remove_input()
         egc['igraph'].normalize()
     return _pgc_epilogue(gms, egc)
@@ -885,7 +884,7 @@ def gc_add_output(gms, tgc):
     if tgc is not None:
         egc = eGC(_clone(tgc))
         if _LOG_DEBUG:
-            _logger.debug(f"Minimally cloned {tgc['ref']} to {egc['ref']}")
+            _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
         egc['igraph'].add_output()
         egc['igraph'].normalize()
     return _pgc_epilogue(gms, egc)
@@ -914,7 +913,7 @@ def gc_remove_output(gms, tgc):
     if tgc is not None:
         egc = eGC(_clone(tgc))
         if _LOG_DEBUG:
-            _logger.debug(f"Minimally cloned {tgc['ref']} to {egc['ref']}")
+            _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
         egc['igraph'].add_output()
         egc['igraph'].normalize()
     return _pgc_epilogue(gms, egc)
@@ -943,7 +942,7 @@ def gc_remove_constant(gms, tgc):
     if tgc is not None:
         egc = eGC(_clone(tgc))
         if _LOG_DEBUG:
-            _logger.debug(f"Minimally cloned {tgc['ref']} to {egc['ref']}")
+            _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
         egc['igraph'].remove_constant()
         egc['igraph'].normalize()
     return _pgc_epilogue(gms, egc)
@@ -1029,7 +1028,7 @@ def steady_state_exception(gms, fgc):
     -------
     (fGC, fGC, str): (target_gc, insert_gc, 'A', 'B' or 'O') or None
     """
-    if _LOG_DEBUG: _logger.debug(f"Steady state exception thrown for GC ref {fgc['ref']}.")
+    if _LOG_DEBUG: _logger.debug(f"Steady state exception thrown for GC ref {ref_str(fgc['ref'])}.")
     fgc_graph = fgc['igraph']
 
     # Find unconnected destination endpoints. Determine highest row & endpoint types.

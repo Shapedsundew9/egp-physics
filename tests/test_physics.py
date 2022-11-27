@@ -1,27 +1,30 @@
-"""Test GC operations.
+"""Test GC insertion operations.
 
-This test module assumes it has access to a postgresql instance as configured in
-data/test_glib_config.json. The user requires database CREATE & DELETE rights.
+See https://docs.google.com/spreadsheets/d/1YQjrM91e5x30VUIRzipNYX3W7yiFlg6fy9wKbMTx1iY/edit?usp=sharing
+FIXME: These operations need test cases using the full stack to prove TGC == RGC after insertion.
 """
 
 from collections import Counter
 from hashlib import md5
-from json import load
+from json import load, dump
 from logging import DEBUG, INFO, WARN, ERROR, FATAL, NullHandler, getLogger
 from os.path import dirname, join
 from pprint import pformat
 from random import choice, randint
 from statistics import stdev
+from copy import deepcopy
 
 from egp_physics.gc_graph import gc_graph
 from egp_physics.gc_type import eGC, mGC
 from egp_physics.physics import stablize
 
 # Load the results file.
-with open(join(dirname(__file__), "data/test_physics_results.json"), "r") as file_ptr:
+_RESULTS_FILE = 'test_physics_results.json'
+with open(join(dirname(__file__), "data/", _RESULTS_FILE), "r") as file_ptr:
     results = load(file_ptr)
 
 
+# Statitcis are based on this number of iterations
 STATS_N = 1000
 
 
@@ -35,22 +38,39 @@ _LOG_ERROR = _logger.isEnabledFor(ERROR)
 _LOG_FATAL = _logger.isEnabledFor(FATAL)
 
 
+# Set to True to generate test_physics_results.json
+_GENERATE_RESULTS_FILE = True
+_results = deepcopy(results)
+
+
+def _write_results():
+    """Dump the results to a local file.
+    
+    The dumped file can be used as the results file.
+    """
+    with open(_RESULTS_FILE, "w") as file_ptr:
+        dump(_results, file_ptr, indent=4, sort_keys=True)
+
+
 def test_basic_insert_1_simple():
     """Test case #1 of GC insertion."""
-    tgc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    graph = stablize(None, tgc, igc, 'A')[0]['graph']
-    code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
-    """
-    # Debug code
-    graphs = {}
-    for _ in range(100):
-        graph = gc_insert(None, tgc, igc, 'A')[0]['graph']
-        code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
-        graphs[code] = graph
-    print(pformat(graphs))
-    """
-    assert code in results['basic_insert_1'].keys()
+    _logger.info('Test case: test_basic_insert_1_simple')
+    results_key = 'basic_insert_1'
+    tgc = eGC({'O': [['I', 0, 2]], 'U': [['I', 1, 2]]}, sv=False)
+    igc = eGC({'O': [['I', 0, 2]], 'U': [['I', 1, 2]]}, sv=False)
+
+    if _GENERATE_RESULTS_FILE:
+        _results[results_key] = {}
+        for _ in range(STATS_N):
+            graph = stablize(None, tgc, igc, 'A')[0]['graph']
+            code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+            _results[results_key].setdefault(code, graph)
+        _write_results()                
+    else:
+        for above_row in 'ABO':
+            graph = stablize(None, tgc, igc, above_row)[0]['graph']
+            code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+            assert code in results[results_key].keys()
 
 
 def test_basic_insert_2_simple():
@@ -62,125 +82,131 @@ def test_basic_insert_2_simple():
     of types and insertion location is random and so several variants
     may be created and one of which is correct.
     """
+    _logger.info('Test case: test_basic_insert_2_simple')
+    results_key = 'basic_insert_2'
     tgc = mGC(igraph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O': [['A', 0, 2]]}), sv=False)
-    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    graph = stablize(None, tgc, igc, 'A')[0]['graph']
-    code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+    igc = eGC({'O': [['I', 0, 2]], 'U': [['I', 1, 2]]}, sv=False)
 
-    """
-    # Debug code
-    graphs = {}
-    for _ in range(100):
-        graph = gc_insert(None, tgc, igc, 'A')[0]['graph']
+    if _GENERATE_RESULTS_FILE:
+        _results[results_key] = {}
+        for _ in range(STATS_N):
+            graph = stablize(None, tgc, igc, 'A')[0]['graph']
+            code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+            _results[results_key].setdefault(code, graph)
+        _write_results()                
+    else:
+        graph = stablize(None, tgc, igc, 'A')[0]['graph']
         code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
-        graphs[code] = graph
-    print(pformat(graphs))
-    """
-    assert code in results['basic_insert_2'].keys()
+        assert code in results[results_key].keys()
 
 
 def test_basic_insert_3_simple():
     """Test case #3 of GC insertion."""
+    _logger.info('Test case: test_basic_insert_3_simple')
+    results_key = 'basic_insert_3'
     tgc = mGC(igraph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O': [['A', 0, 2]]}), sv=False)
-    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    graph = stablize(None, tgc, igc, 'B')[0]['graph']
-    code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+    igc = eGC({'O': [['I', 0, 2]], 'U': [['I', 1, 2]]}, sv=False)
 
-    """
-    # Debug code
-    graphs = {}
-    for _ in range(100):
-        graph = gc_insert(None, tgc, igc, 'B')[0]['graph']
-        code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
-        graphs[code] = graph
-    print(pformat(graphs))
-    """
-    assert code in results['basic_insert_3'].keys()
+    if _GENERATE_RESULTS_FILE:
+        _results[results_key] = {}
+        for _ in range(STATS_N):
+            graph = stablize(None, tgc, igc, 'B')[0]['graph']
+            code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+            _results[results_key].setdefault(code, graph)
+        _write_results()                
+    else:
+        for above_row in 'BO':
+            graph = stablize(None, tgc, igc, above_row)[0]['graph']
+            code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+            assert code in results[results_key].keys()
 
 
 def test_basic_insert_4_simple():
-    """Test case #4 of GC insertion."""
+    """Test case #4 of GC insertion.
+
+    NOTE: rgc for case 5 is the same as in case 4 when tgc & igc are the same.
+    The difference comes in fgc.    
+    """
+    _logger.info('Test case: test_basic_insert_4_simple')
     graph = {
         'A': [['I', 1, 2], ['I', 1, 2]],
         'B': [['I', 0, 2], ['I', 1, 2]],
         'O': [['B', 0, 2]],
         'U': [['A', 0, 2]]
     }
+    results_key = 'basic_insert_4'
     tgc = mGC(igraph=gc_graph(graph), sv=False)
-    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    graph = stablize(None, tgc, igc, 'A')[0]['graph']
-    code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+    igc = eGC({'O': [['I', 0, 2]], 'U': [['I', 1, 2]]}, sv=False)
 
-    """
-    # Debug code
-    graphs = {}
-    # rgc result is the sole possible result for the simple test
-    graph = gc_insert(None, tgc, igc, 'A')[0]['graph']
-    code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
-    graphs[code] = graph
-    for _ in range(100):
-        # fgc results are for use in test_basic_insert_4_stats test
-        graph = gc_insert(None, tgc, igc, 'A')[1]['graph']
+    if _GENERATE_RESULTS_FILE:
+        _results[results_key] = {}
+        for _ in range(STATS_N):
+            rgc, fgc_dict = stablize(None, tgc, igc, 'A')
+            for gcg in (rgc, *tuple(fgc_dict.values())):
+                graph = gcg['graph']
+                code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+                _results[results_key].setdefault(code, graph)
+        _write_results()                
+    else:
+        graph = stablize(None, tgc, igc, 'A')[0]['graph']
         code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
-        graphs[code] = graph
-    print(pformat(graphs))
-    """
-    assert code in results['basic_insert_4'].keys()
+        assert code in results[results_key].keys()
 
 
 def test_basic_insert_5_simple():
-    """Test case #5 of GC insertion."""
+    """Test case #5 of GC insertion.
+    
+    NOTE: rgc for case 5 is the same as in case 4 when tgc & igc are the same.
+    The difference comes in fgc.
+    """
+    _logger.info('Test case: test_basic_insert_5_simple')
     graph = {
         'A': [['I', 1, 2], ['I', 1, 2]],
         'B': [['I', 0, 2], ['I', 1, 2]],
         'O': [['B', 0, 2]],
         'U': [['A', 0, 2]]
     }
+    results_key = 'basic_insert_5'
     tgc = mGC(igraph=gc_graph(graph), sv=False)
-    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    graph = stablize(None, tgc, igc, 'B')[0]['graph']
-    code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+    igc = eGC({'O': [['I', 0, 2]], 'U': [['I', 1, 2]]}, sv=False)
 
-    """
-    # Debug code
-    graphs = {}
-    # rgc result is the sole possible result for the simple test
-    graph = gc_insert(None, tgc, igc, 'B')[0]['graph']
-    code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
-    graphs[code] = graph
-    for _ in range(100):
-        # fgc results are for use in test_basic_insert_4_stats test
-        graph = gc_insert(None, tgc, igc, 'B')[1]['graph']
+    if _GENERATE_RESULTS_FILE:
+        _results[results_key] = {}
+        for _ in range(STATS_N):
+            graph = stablize(None, tgc, igc, 'B')[0]['graph']
+            code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+            _results[results_key].setdefault(code, graph)
+        _write_results()                
+    else:
+        graph = stablize(None, tgc, igc, 'B')[0]['graph']
         code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
-        graphs[code] = graph
-    print(pformat(graphs))
-    """
-    assert code in results['basic_insert_5'].keys()
+        assert code in results[results_key].keys()
 
 
 def test_basic_insert_6_simple():
     """Test case #6 of GC insertion."""
+    _logger.info('Test case: test_basic_insert_6_simple')
     graph = {
         'A': [['I', 1, 2], ['I', 1, 2]],
         'B': [['I', 0, 2], ['I', 1, 2]],
         'O': [['B', 0, 2]],
         'U': [['A', 0, 2]]
     }
+    results_key = 'basic_insert_6'
     tgc = mGC(igraph=gc_graph(graph), sv=False)
-    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    graph = stablize(None, tgc, igc, 'O')[0]['graph']
-    code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+    igc = eGC({'O': [['I', 0, 2]], 'U': [['I', 1, 2]]}, sv=False)
 
-    """
-    # Debug code
-    graphs = {}
-    for _ in range(100):
-        graph = gc_insert(None, tgc, igc, 'O')[0]['graph']
+    if _GENERATE_RESULTS_FILE:
+        _results[results_key] = {}
+        for _ in range(STATS_N):
+            graph = stablize(None, tgc, igc, 'O')[0]['graph']
+            code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
+            _results[results_key].setdefault(code, graph)
+        _write_results()                
+    else:
+        graph = stablize(None, tgc, igc, 'O')[0]['graph']
         code = md5(bytearray(pformat(graph), encoding='ascii')).hexdigest()
-        graphs[code] = graph
-    print(pformat(graphs))
-    """
-    assert code in results['basic_insert_6'].keys()
+        assert code in results[results_key].keys()
 
 #TODO: Add reference sanity tests. Found a bug where circular references occured.
 
@@ -189,8 +215,9 @@ def test_basic_insert_1_stats():
 
     Case #1 has 12 equally probable possiblities.
     """
-    tgc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
-    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
+    _logger.info('Test case: test_basic_insert_1_stats')
+    tgc = eGC({'O': [['I', 0, 2]], 'U': [['I', 1, 2]]}, sv=False)
+    igc = eGC({'O': [['I', 0, 2]], 'U': [['I', 1, 2]]}, sv=False)
     def f(): return md5(bytearray(pformat(stablize(None, tgc, igc, 'A')[0]['graph']), encoding='ascii')).hexdigest()
     def func(x): return [f() for _ in range(x)]
     unlikely = 0
@@ -229,8 +256,9 @@ def test_basic_insert_2_stats():
     So if 1000 inserts have a stdev > 35.115 three times in a row that is
     about a 1 in 10 billion shot.
     """
+    _logger.info('Test case: test_basic_insert_2_stats')
     tgc = mGC(igraph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O': [['A', 0, 2]]}), sv=False)
-    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
+    igc = eGC({'O': [['I', 0, 2]], 'U': [['I', 1, 2]]}, sv=False)
     def f(): return md5(bytearray(pformat(stablize(None, tgc, igc, 'A')[0]['graph']), encoding='ascii')).hexdigest()
     def func(x): return [f() for _ in range(x)]
     unlikely = 0
@@ -256,8 +284,9 @@ def test_basic_insert_3_stats():
 
     Case #3 has 9 equally probable possiblities.
     """
+    _logger.info('Test case: test_basic_insert_3_stats')
     tgc = mGC(igraph=gc_graph({'A': [['I', 0, 2], ['I', 1, 2]], 'O': [['A', 0, 2]]}), sv=False)
-    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
+    igc = eGC({'O': [['I', 0, 2]], 'U': [['I', 1, 2]]}, sv=False)
     def f(): return md5(bytearray(pformat(stablize(None, tgc, igc, 'B')[0]['graph']), encoding='ascii')).hexdigest()
     def func(x): return [f() for _ in range(x)]
     unlikely = 0
@@ -284,6 +313,7 @@ def test_basic_insert_4_stats():
     Case #4 FGC should have the same statistics as case #2.
     Only one RGC result is possible.
     """
+    _logger.info('Test case: test_basic_insert_4_stats')
     graph = {
         'A': [['I', 1, 2], ['I', 1, 2]],
         'B': [['I', 0, 2], ['I', 1, 2]],
@@ -291,7 +321,7 @@ def test_basic_insert_4_stats():
         'U': [['A', 0, 2]]
     }
     tgc = mGC(igraph=gc_graph(graph), sv=False)
-    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
+    igc = eGC({'O': [['I', 0, 2]], 'U': [['I', 1, 2]]}, sv=False)
 
     unlikely = 0
     for _ in range(3):
@@ -333,6 +363,7 @@ def test_basic_insert_5_stats():
     Case #5 FGC should have the same statistics as case #3.
     Only one RGC result is possible.
     """
+    _logger.info('Test case: test_basic_insert_5_stats')
     graph = {
         'A': [['I', 1, 2], ['I', 1, 2]],
         'B': [['I', 0, 2], ['I', 1, 2]],
@@ -340,7 +371,7 @@ def test_basic_insert_5_stats():
         'U': [['A', 0, 2]]
     }
     tgc = mGC(igraph=gc_graph(graph), sv=False)
-    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
+    igc = eGC({'O': [['I', 0, 2]], 'U': [['I', 1, 2]]}, sv=False)
 
     unlikely = 0
     for _ in range(3):
@@ -382,6 +413,7 @@ def test_basic_insert_6_stats():
     Case #6 FGC should have the same statistics as case #3.
     Only one RGC result is possible.
     """
+    _logger.info('Test case: test_basic_insert_6_stats')
     graph = {
         'A': [['I', 1, 2], ['I', 1, 2]],
         'B': [['I', 0, 2], ['I', 1, 2]],
@@ -389,7 +421,7 @@ def test_basic_insert_6_stats():
         'U': [['A', 0, 2]]
     }
     tgc = mGC(igraph=gc_graph(graph), sv=False)
-    igc = eGC(inputs=(2, 2), outputs=(2,), sv=False)
+    igc = eGC({'O': [['I', 0, 2]], 'U': [['I', 1, 2]]}, sv=False)
     def f(): return md5(bytearray(pformat(stablize(None, tgc, igc, 'O')[0]['graph']), encoding='ascii')).hexdigest()
     def func(x): return [f() for _ in range(x)]
     unlikely = 0
@@ -422,6 +454,7 @@ def test_random_homogeneous_insertion():
     At the end there is a mush of GC's. They should be valid GC's & no steady state
     exception should occur.
     """
+    _logger.info('Test case: test_random_homogeneous_insertion')
     gc_list = [mGC(eGC(inputs=[2]*randint(1, 8), outputs=[2]*randint(1, 8)), sv=False) for _ in range(10)]
     for _ in range(1000):
         tgc = choice(gc_list)
