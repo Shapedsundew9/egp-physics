@@ -5,18 +5,15 @@ from pprint import pformat
 from random import randint, choice
 from numpy import array, float32, isfinite
 from numpy.random import choice as weighted_choice
-from collections import Counter
 from collections.abc import Iterable
 from typing import Union
 
-from .ep_type import vtype
-from .gc_graph import DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref, ref_idx
-from .gc_type import M_CONSTANT, eGC, interface_definition, mGC, is_pgc, NUM_PGC_LAYERS, M_MASK, _GC, ref_str
-from .execution import create_callable
-from egp_population.gGC import gGC, _gGC
-from egp_population.gene_pool_cache import gene_pool_cache
-
-
+from egp_types.ep_type import vtype, interface_definition
+from egp_types.gc_graph import DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref, ref_idx
+from egp_types.eGC import eGC
+from egp_types.mGC import mGC
+from egp_types._GC import _GC, is_pgc, NUM_PGC_LAYERS, M_MASK, ref_str
+from egp_execution.execution import create_callable
 
 _logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
