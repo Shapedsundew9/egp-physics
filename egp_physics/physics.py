@@ -550,7 +550,7 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
         # of target_gc['ref'] in fgc_dict[*][...ref fields...]
         # and the new_tgc if it is defined.
         #
-        # In the case where target_gc is unstable it in not in fgc_dict
+        # In the case where target_gc is unstable it is not in fgc_dict
         # but will appear 
         # TODO: There must be a more efficient way of doing this
         new_ref = rgc['ref'] = _GC.next_reference()
