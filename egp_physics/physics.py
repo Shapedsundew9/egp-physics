@@ -985,10 +985,13 @@ def proximity_select(gms, xputs):
     (int, dict): (match_type, agc) or None
     """
     # TODO: Lots of short queries is inefficient. Ideas:
-    #   a) Specific query support from GP local cache
+    #   a) Specific query support from GPC (interface hash)
     #   b) https://stackoverflow.com/questions/42089781/sql-if-select-returns-nothing-then-do-another-select ?
-    #   c) Cache general queries (but this means missing out on new options)
+    #   c) Cache general queries (but this means missing out on new options) and randomly select from a list of candidates.
     #   d) Batch queries (but this is architecturally tricky)
+    #   e) Optimize DB for these queries. 
+    #   f) Cache queries at the DB, in the parent process & in the sub-process?
+    #   g) This should first search the GP and fallback to the GL
     match_type = randint(0, _NUM_MATCH_TYPES - 1)
     agc = tuple(gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs))
     while not agc and match_type < _NUM_MATCH_TYPES - 1:
