@@ -12,8 +12,11 @@ from egp_types.ep_type import vtype, interface_definition
 from egp_types.gc_graph import DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref, ref_idx
 from egp_types.eGC import eGC
 from egp_types.mGC import mGC
-from egp_types._GC import _GC, is_pgc, NUM_PGC_LAYERS, M_MASK, ref_str
+from egp_types._GC import _GC
+from egp_types.reference import ref_str
+from egp_types.gc_type_tools import is_pgc, NUM_PGC_LAYERS, M_MASK
 from egp_execution.execution import create_callable
+from egp_stores.gene_pool_cache import gene_pool_cache
 
 _logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
