@@ -11,8 +11,6 @@ from typing import Union
 from egp_types.ep_type import vtype, interface_definition
 from egp_types.gc_graph import DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref, ref_idx
 from egp_types.eGC import eGC
-from egp_types.mGC import mGC
-from egp_types._GC import _GC
 from egp_types.reference import ref_str
 from egp_types.gc_type_tools import is_pgc, NUM_PGC_LAYERS, M_MASK
 from egp_execution.execution import create_callable
@@ -23,7 +21,7 @@ _logger.addHandler(NullHandler())
 _LOG_DEBUG = _logger.isEnabledFor(DEBUG)
 
 # Steady state exception filters.
-_EXCLUSION_LIMIT =  ' AND NOT ({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT 1'
+_EXCLUSION_LIMIT = ' AND NOT ({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT 1'
 
 # TODO: Replace with a localisation hash?
 _MATCH_TYPE_0_SQL = ('WHERE {input_types} = {itypes}::SMALLINT[] AND {inputs} = {iidx} AND {output_types} = {otypes}::SMALLINT[] AND {outputs} = {oidx}'
