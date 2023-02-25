@@ -1,12 +1,12 @@
 """The operation that can be performed on a GC dictionary."""
 from copy import copy, deepcopy
-from logging import DEBUG, NullHandler, getLogger
+from logging import DEBUG, NullHandler, getLogger, Logger
 from pprint import pformat
 from random import randint, choice
 from numpy import array, float32, isfinite
 from numpy.random import choice as weighted_choice
 from collections.abc import Iterable
-from typing import Union
+from typing import Union, LiteralString, Any
 
 from egp_types.ep_type import vtype, interface_definition
 from egp_types.gc_graph import DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref, ref_idx
@@ -16,31 +16,31 @@ from egp_types.gc_type_tools import is_pgc, NUM_PGC_LAYERS, M_MASK
 from egp_execution.execution import create_callable
 from egp_stores.gene_pool_cache import gene_pool_cache
 
-_logger = getLogger(__name__)
+_logger: Logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
-_LOG_DEBUG = _logger.isEnabledFor(DEBUG)
+_LOG_DEBUG: bool = _logger.isEnabledFor(DEBUG)
 
 # Steady state exception filters.
-_EXCLUSION_LIMIT = ' AND NOT ({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT 1'
+_EXCLUSION_LIMIT: LiteralString = ' AND NOT ({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT 1'
 
 # TODO: Replace with a localisation hash?
-_MATCH_TYPE_0_SQL = ('WHERE {input_types} = {itypes}::SMALLINT[] AND {inputs} = {iidx} AND {output_types} = {otypes}::SMALLINT[] AND {outputs} = {oidx}'
+_MATCH_TYPE_0_SQL: LiteralString = ('WHERE {input_types} = {itypes}::SMALLINT[] AND {inputs} = {iidx} AND {output_types} = {otypes}::SMALLINT[] AND {outputs} = {oidx}'
                      + _EXCLUSION_LIMIT)
-_MATCH_TYPE_1_SQL = 'WHERE {input_types} = {itypes}::SMALLINT[] AND {output_types} = {otypes}::SMALLINT[] AND {outputs} = {oidx}' + _EXCLUSION_LIMIT
-_MATCH_TYPE_2_SQL = 'WHERE {input_types} = {itypes}::SMALLINT[] AND {inputs} = {iidx} AND {output_types} = {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
-_MATCH_TYPE_3_SQL = 'WHERE {input_types} = {itypes}::SMALLINT[] AND {output_types} = {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
-_MATCH_TYPE_4_SQL = 'WHERE {input_types} <@ {itypes}::SMALLINT[] AND {output_types} = {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
-_MATCH_TYPE_5_SQL = 'WHERE {input_types} <@ {itypes}::SMALLINT[] AND {output_types} @> {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
-_MATCH_TYPE_6_SQL = 'WHERE {input_types} <@ {itypes}::SMALLINT[] AND {output_types} && {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
-_MATCH_TYPE_7_SQL = 'WHERE {input_types} && {itypes}::SMALLINT[] AND {output_types} && {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
-_MATCH_TYPE_8_SQL = 'WHERE {output_types} && {otypes}::SMALLINT[] ' + _EXCLUSION_LIMIT
-_MATCH_TYPE_9_SQL = 'WHERE {input_types} && {itypes}::SMALLINT[] ' + _EXCLUSION_LIMIT
+_MATCH_TYPE_1_SQL: LiteralString = 'WHERE {input_types} = {itypes}::SMALLINT[] AND {output_types} = {otypes}::SMALLINT[] AND {outputs} = {oidx}' + _EXCLUSION_LIMIT
+_MATCH_TYPE_2_SQL: LiteralString = 'WHERE {input_types} = {itypes}::SMALLINT[] AND {inputs} = {iidx} AND {output_types} = {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
+_MATCH_TYPE_3_SQL: LiteralString = 'WHERE {input_types} = {itypes}::SMALLINT[] AND {output_types} = {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
+_MATCH_TYPE_4_SQL: LiteralString = 'WHERE {input_types} <@ {itypes}::SMALLINT[] AND {output_types} = {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
+_MATCH_TYPE_5_SQL: LiteralString = 'WHERE {input_types} <@ {itypes}::SMALLINT[] AND {output_types} @> {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
+_MATCH_TYPE_6_SQL: LiteralString = 'WHERE {input_types} <@ {itypes}::SMALLINT[] AND {output_types} && {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
+_MATCH_TYPE_7_SQL: LiteralString = 'WHERE {input_types} && {itypes}::SMALLINT[] AND {output_types} && {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
+_MATCH_TYPE_8_SQL: LiteralString = 'WHERE {output_types} && {otypes}::SMALLINT[] ' + _EXCLUSION_LIMIT
+_MATCH_TYPE_9_SQL: LiteralString = 'WHERE {input_types} && {itypes}::SMALLINT[] ' + _EXCLUSION_LIMIT
 # Catch for when xtypes is an empty set.
-_MATCH_TYPE_10_SQL = 'WHERE {output_types} = {otypes}::SMALLINT[] ' + _EXCLUSION_LIMIT
-_MATCH_TYPE_11_SQL = 'WHERE {input_types} = {itypes}::SMALLINT[] ' + _EXCLUSION_LIMIT
+_MATCH_TYPE_10_SQL: LiteralString = 'WHERE {output_types} = {otypes}::SMALLINT[] ' + _EXCLUSION_LIMIT
+_MATCH_TYPE_11_SQL: LiteralString = 'WHERE {input_types} = {itypes}::SMALLINT[] ' + _EXCLUSION_LIMIT
 
 
-_MATCH_TYPES_SQL = (
+_MATCH_TYPES_SQL: tuple[LiteralString, ...] = (
     _MATCH_TYPE_0_SQL,
     _MATCH_TYPE_1_SQL,
     _MATCH_TYPE_2_SQL,
@@ -54,13 +54,13 @@ _MATCH_TYPES_SQL = (
     _MATCH_TYPE_10_SQL,
     _MATCH_TYPE_11_SQL
 )
-_NUM_MATCH_TYPES = len(_MATCH_TYPES_SQL)
+_NUM_MATCH_TYPES: int = len(_MATCH_TYPES_SQL)
 
 
 # PGC Constants
-RANDOM_PGC_SIGNATURE = b'\x00'*32
-_PGC_PARENTAL_PROTECTION_FACTOR = 0.75
-_POPULATION_PARENTAL_PROTECTION_FACTOR = 0.75
+RANDOM_PGC_SIGNATURE: bytes = b'\x00'*32
+_PGC_PARENTAL_PROTECTION_FACTOR: float = 0.75
+_POPULATION_PARENTAL_PROTECTION_FACTOR: float = 0.75
 
 
 def _copy_row(igc, rows, ep_type=None):
