@@ -634,6 +634,74 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):
         return ggcs[0]
     return (None,)
 
+def stack(self, lower_graph: Self) -> Self | None:
+        """Stack this graph on top of the lower_graph.
+
+        Graph upper_graph (self) is stacked on lower_graph to make gC i.e. gC inputs are upper_graph's inputs
+        and gC's outputs are lower_graph's outputs:
+            1. gC's inputs directly connect to upper_graph's inputs, 1:1 in order
+            2. lower_graph's inputs preferentially connect to upper_graph's outputs 1:1
+            3. lower_graph's outputs directly connect to gC's outputs, 1:1 in order
+            4. Any upper_graph's outputs that are not connected to lower_graph inputs create new gC outputs
+            5. Any lower_graphs input that are not connected to upper_graph outputs create new gC inputs
+
+        Stacking only works if there is at least 1 connection from upper_graph's outputs to lower_graph's inputs.
+
+        Args
+        ----
+        lower_graph: Graph to sit on top of.
+
+        Returns
+        -------
+        A new graph or None if stacking could not result in a valid graph.
+        """
+        # TODO: Stacking is inserting under row O which changes the output interface
+        # that means it cannot be done on a sub-GC - but to what end?
+
+        # Create all the end points
+        ep_list = []
+        for ep in filter(lower_graph.rows_filter(('I', 'O')), lower_graph.graph.values()):
+            row, idx, typ = ep.row, ep.idx, ep.typ
+            if row == 'I':
+                ep_list.append([False, 'B', idx, typ, []])
+            elif row == 'O':
+                ep_list.append([True, 'B', idx, typ, [['O', idx]]])
+                ep_list.append([False, 'O', idx, typ, [['B', idx]]])
+
+        for ep in filter(self.rows_filter(('I', 'O')), self.i_graph.values()):
+            row, idx, typ = ep.row, ep.idx, ep.typ
+            if row == 'I':
+                ep_list.append([True, 'I', idx, typ, [['A', idx]]])
+                ep_list.append([False, 'A', idx, typ, [['I', idx]]])
+            elif row == 'O':
+                ep_list.append([True, 'A', idx, typ, []])
+
+        # Make a gC gc_graph object
+        gC = gc_graph()
+        for ep in ep_list:
+            gC._add_ep(ep)
+
+        # Preferentially connect A --> B but only 1:1
+        gA_gB_connection = False
+        for ep in filter(gC.dst_filter(gC.row_filter('B')), gC.graph.values()):
+            gA_gB_connection = gA_gB_connection or gC.add_connection([ep], gC.row_filter('A', gC.unreferenced_filter()))
+
+        if gA_gB_connection:
+            # Extend O with any remaining A src's
+            for ep in tuple(filter(gC.src_filter(gC.row_filter('A', gC.unreferenced_filter())), gC.graph.values())):
+                idx = gC.num_outputs()
+                gC._add_ep([DST_EP, 'O', idx, ep.typ, [['A', ep.idx]]])
+                ep.refs.append(['O', idx])
+
+            # Extend I with any remaining B dst's
+            for ep in tuple(filter(gC.dst_filter(gC.row_filter('B', gC.unreferenced_filter())), gC.graph.values())):
+                idx = gC.num_inputs()
+                gC._add_ep([SRC_EP, 'I', idx, ep.typ, [['B', ep.idx]]])
+                ep.refs.append(['I', idx])
+
+            return gC
+        return None
+
 
 def gc_stack(gms, top_gc, bottom_gc):
     """Stack two GC's.
