@@ -1,4 +1,4 @@
-"""The operation that can be performed on a GC dictionary."""
+"""The operations that can be performed on a GC."""
 from copy import copy, deepcopy
 from logging import DEBUG, NullHandler, getLogger, Logger
 from pprint import pformat
@@ -6,15 +6,17 @@ from random import randint, choice
 from numpy import array, float32, isfinite
 from numpy.random import choice as weighted_choice
 from collections.abc import Iterable
-from typing import Union, LiteralString, Any
+from typing import Union, LiteralString, Any, Literal
 
 from egp_types.ep_type import vtype, interface_definition
 from egp_types.gc_graph import DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref, ref_idx
 from egp_types.eGC import eGC
+from egp_types.internal_graph import internal_graph, EndPointDict, SrcEndPointDict, DstEndPointDict
 from egp_types.reference import ref_str
 from egp_types.gc_type_tools import is_pgc, NUM_PGC_LAYERS, M_MASK
 from egp_execution.execution import create_callable
 from egp_stores.gene_pool_cache import gene_pool_cache
+from egp_types.egp_typing import Row
 
 _logger: Logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
@@ -63,218 +65,7 @@ _PGC_PARENTAL_PROTECTION_FACTOR: float = 0.75
 _POPULATION_PARENTAL_PROTECTION_FACTOR: float = 0.75
 
 
-def _copy_row(igc, rows, ep_type=None):
-    """Copy the internal format definition of a row.
-
-    If ep_type is None all endpoints regardless of end point type are copied.
-
-    Args
-    ----
-    igc (dict): Internal gc_graph format gc_graph.
-    rows (str): Valid row letters as a string e.g. 'IC'
-    ep_type (bool): SRC_EP or DST_EP
-
-    Returns
-    -------
-    (dict): An internal graph format dictionary containing the row.
-    """
-    if ep_type is not None:
-        def filter_func(x): return x[1][ep_idx.EP_TYPE] == ep_type and x[1][ep_idx.ROW] in rows
-    else:
-        def filter_func(x): return x[1][ep_idx.ROW] in rows
-    return {k: deepcopy(ep) for k, ep in filter(filter_func, igc.items())}
-
-
-def _copy_clean_row(igc, rows, ep_type=None):
-    """Copy the internal format definition of a row removing references.
-
-    If ep_type is None all endpoints regardless of end point type are copied.
-
-    Args
-    ----
-    igc (dict): Internal gc_graph format gc_graph.
-    rows (str): Valid row letters as a string e.g. 'IC'
-    ep_type (bool): SRC_EP or DST_EP
-
-    Returns
-    -------
-    (dict): An internal graph format dictionary containing the clean row.
-    """
-    if ep_type is not None:
-        def filter_func(x): return x[1][ep_idx.EP_TYPE] == ep_type and x[1][ep_idx.ROW] in rows
-    else:
-        def filter_func(x): return x[1][ep_idx.ROW] in rows
-    copied_row = {k: copy(ep) for k, ep in filter(filter_func, igc.items())}
-    for ep in copied_row.values():
-        ep[ep_idx.REFERENCED_BY] = []
-    return copied_row
-
-
-def _move_row(igc, src_row, src_ep_type, dst_row, dst_ep_type, clean=False):
-    """Move a row definition to a different row.
-
-    The endpoints moved are filtered by src_row & ep_type.
-    If ep_type is None all endpoints regardless of end point type are moved.
-    The moved rows are cleaned of references.
-
-    Args
-    ----
-    igc (dict): Internal gc_graph format gc_graph.
-    src_row (str): A valid row letter
-    src_ep_type (bool or None): SRC_EP or DST_EP or None
-    dst_row (str): A valid row letter
-    dst_ep_type (bool or None): SRC_EP or DST_EP or None
-    clean (bool): Remove references in dst_row if True
-
-    Returns
-    -------
-    (dict): A gc_graph internal format containing the destination row endpoints.
-    """
-    if src_ep_type is not None:
-        def filter_func(x): return x[ep_idx.EP_TYPE] == src_ep_type and x[ep_idx.ROW] == src_row
-    else:
-        def filter_func(x): return x[ep_idx.ROW] == src_row
-    dst_eps = [deepcopy(ep) for ep in filter(filter_func, igc.values())]
-    if _LOG_DEBUG:
-        _logger.debug("Moving {} to row {} ep_type {}".format(dst_eps, dst_row, dst_ep_type))
-    for ep in dst_eps:
-        ep[ep_idx.ROW] = dst_row
-        if clean:
-            ep[ep_idx.REFERENCED_BY].clear()
-    if dst_ep_type is not None:
-        for ep in dst_eps:
-            ep[ep_idx.EP_TYPE] = dst_ep_type
-    return {hash_ep(ep): ep for ep in dst_eps}
-
-
-def _direct_connect(igc, src_row, dst_row):
-    """Create dst_row and directly connect it to src_row.
-
-    A direct connection means that dst_row has the same number, gc type and
-    order of destination end points as src_row has source endpoints.
-    src_row SRC_EPs should exist in fgc (else no-op).
-    dst_row DST_EPs will be created in fgc.
-    If any dst_row DST_EPs exist in fgc behaviour is undefined.
-
-    Args
-    ----
-    igc (dict): Internal gc_graph format dict to be updated.
-    src_row (str): 'I', 'C', 'A', or 'B'
-    dst_row (str): Valid destination for src_row.
-
-    Returns
-    -------
-    (dict): A gc_graph internal format containing the destination row endpoints.
-    """
-    connected_row = {}
-    def filter_func(x): return x[ep_idx.EP_TYPE] and x[ep_idx.ROW] == src_row
-    for src_ep in filter(filter_func, igc.values()):
-        dst_ep = [DST_EP, dst_row, src_ep[ep_idx.INDEX], src_ep[ep_idx.TYPE], [[src_row, src_ep[ep_idx.INDEX]]]]
-        connected_row[hash_ep(dst_ep)] = dst_ep
-    return connected_row
-
-
-def _append_connect(igc, src_row, dst_row):
-    """Append endpoints to dst_row and directly connect them to src_row.
-
-    A direct connection means that dst_row has the same number, gc type and
-    order of destination end points as src_row has source endpoints.
-    src_row SRC_EPs should exist in fgc (else no-op).
-    dst_row DST_EPs should exist in fgc.
-
-    Args
-    ----
-    igc (dict): Internal gc_graph format dict to be updated.
-    src_row (str): 'I', 'C', 'A', or 'B'
-    dst_row (str): Valid destination for src_row.
-
-    Returns
-    -------
-    (dict): A gc_graph internal format containing the destination row endpoints.
-    """
-    connected_row = {}
-
-    # Find the next endpoint index in the destination row
-    def filter_func(x): return not x[ep_idx.EP_TYPE] and x[ep_idx.ROW] == dst_row
-    indices = [dst_ep[ep_idx.INDEX] for dst_ep in filter(filter_func, igc.values())]
-    next_idx = max(indices) + 1 if indices else 0
-
-    # Append a destination endpoint for every source endpoint
-    def filter_func(x): return x[ep_idx.EP_TYPE] and x[ep_idx.ROW] == src_row
-    for src_ep in tuple(filter(filter_func, igc.values())):
-        dst_ep = [DST_EP, dst_row, next_idx, src_ep[ep_idx.TYPE], [[src_row, src_ep[ep_idx.INDEX]]]]
-        connected_row[hash_ep(dst_ep)] = dst_ep
-        next_idx += 1
-    return connected_row
-
-
-def _redirect_refs(igc, row, ep_type, old_ref_row, new_ref_row):
-    """Redirects references on row from old_ref_row to new_ref_row.
-
-    Args
-    ----
-    igc (dict): Internal gc_graph format dict to be updated.
-    row (str): A valid row
-    ep_type (bool): The old_ref_row ep_type.
-    old_ref_row (str): A valid row
-    new_ref_row (str): A valid row
-
-    Returns
-    -------
-    (dict): Modified igc
-    """
-    def filter_func(x): return x[ep_idx.EP_TYPE] == ep_type and x[ep_idx.ROW] == row
-    for ep in filter(filter_func, igc.values()):
-        for ref in ep[ep_idx.REFERENCED_BY]:
-            if ref[ref_idx.ROW] == old_ref_row:
-                ref[ref_idx.ROW] = new_ref_row
-    return igc
-
-
-def _insert_as(igc, row):
-    """Create an internal gc_format dict with igc as row.
-
-    Args
-    ----
-    igc (dict): Internal gc_graph format gc_graph.
-    row (str): 'A' or 'B'
-
-    Returns
-    -------
-    (dict): Internal gc_format dict with igc as row.
-    """
-    ret_val = {}
-    for ep in filter(lambda x: x[ep_idx.ROW] in ('I', 'O'), igc.values()):
-        cep = copy(ep)
-        cep[ep_idx.ROW] = row
-        cep[ep_idx.EP_TYPE] = not ep[ep_idx.EP_TYPE]
-        cep[ep_idx.REFERENCED_BY] = []
-        ret_val[hash_ep(cep)] = cep
-    return ret_val
-
-
-def _complete_references(igc):
-    """Complete any incomplete references in igc.
-
-    An incomplete reference is when a destination references
-    a source but the source does not reference the destination.
-    This is usually a side effect of insertion.
-    igc is modified.
-
-    Args
-    ----
-    igc (dict): Internal gc_graph format gc_graph.
-    """
-    for dst_ep in filter(lambda x: x[ep_idx.EP_TYPE] == DST_EP and x[ep_idx.REFERENCED_BY], igc.values()):
-        dst_ref = [dst_ep[ep_idx.ROW], dst_ep[ep_idx.INDEX]]
-        for ref in dst_ep[ep_idx.REFERENCED_BY]:
-            src_ep = igc[hash_ref(ref, SRC_EP)]
-            src_refs = src_ep[ep_idx.REFERENCED_BY]
-            if dst_ref not in src_refs:
-                src_refs.append(dst_ref)
-
-
-def _insert(igc_gcg, tgc_gcg, above_row):  # noqa: C901
+def _insert(igc_gcg: gc_graph, tgc_gcg: gc_graph, above_row: Literal['A', 'B', 'O']) -> tuple[gc_graph, gc_graph]:  # noqa: C901
     """Insert igc into the internal graph above row above_row.
 
     See https://docs.google.com/spreadsheets/d/1YQjrM91e5x30VUIRzipNYX3W7yiFlg6fy9wKbMTx1iY/edit?usp=sharing
@@ -291,63 +82,68 @@ def _insert(igc_gcg, tgc_gcg, above_row):  # noqa: C901
     -------
     (gc_graph, gc_graph): rgc, fgc
     """
-    tgc = tgc_gcg.graph
-    igc = igc_gcg.graph
-    rgc = _copy_clean_row(tgc, 'IC')
-    fgc = {}
-    if not tgc_gcg.has_a():
+    tgc: internal_graph = tgc_gcg.i_graph
+    igc: internal_graph = igc_gcg.i_graph
+    rgc = internal_graph()
+    rgc.update(tgc.copy_rows_src_eps(('I', 'C'), True))
+    fgc: internal_graph = internal_graph()
+
+    # TODO: There are opportunities to reduce overhead by making some internal_graph manipulation functions
+    # act on self rather than returning a dictionary to update (into self) 
+    if not tgc_gcg.has_a:
         if _LOG_DEBUG:
             _logger.debug("Case 1: No row A or B")
-        rgc.update(_insert_as(igc, 'A'))
-        rgc.update(_copy_row(tgc, 'O'))
-    elif not tgc_gcg.has_b():
+        rgc.update(igc.insert_row_as('A'))
+        rgc.update(tgc.copy_row('O'))
+    elif not tgc_gcg.has_b:
         if above_row == 'A':
             if _LOG_DEBUG:
                 _logger.debug("Case 2: No row B and insert above A")
-            rgc.update(_insert_as(igc, 'A'))
-            rgc.update(_move_row(tgc, 'A', None, 'B', None))
-            rgc.update(_redirect_refs(_copy_row(tgc, 'O'), 'O', DST_EP, 'A', 'B'))
+            rgc.update(igc.insert_row_as('A'))
+            rgc.update(tgc.move_row('A', 'B'))
+            rgc.update(tgc.copy_row('O'))
+            rgc.redirect_refs('O', DST_EP, 'A', 'B')
         else:
             if _LOG_DEBUG:
                 _logger.debug("Case 3: No row B and insert below A")
-            rgc.update(_copy_row(tgc, 'AO'))
-            rgc.update(_insert_as(igc, 'B'))
+            rgc.update(tgc.copy_rows(('A', 'O')))
+            rgc.update(igc.insert_row_as('B'))
     else:
         if above_row == 'A':
             if _LOG_DEBUG:
                 _logger.debug("Case 4: Has rows A & B and insert above A")
-            fgc.update(_copy_clean_row(tgc, 'IC'))
-            fgc.update(_insert_as(igc, 'A'))
-            fgc.update(_move_row(tgc, 'A', None, 'B', None))
-            fgc.update(_direct_connect(fgc, 'B', 'O'))
-            fgc.update(_append_connect(fgc, 'A', 'O'))
-            rgc.update(_direct_connect(rgc, 'I', 'A'))
-            rgc.update(_move_row(fgc, 'O', None, 'A', SRC_EP, True))
-            rgc.update(_copy_row(tgc, 'BO'))
+            fgc.update(tgc.copy_rows(('I', 'C'), True))
+            fgc.update(igc.insert_row_as('A'))
+            fgc.update(tgc.move_row('A', 'B'))
+            fgc.update(fgc.direct_connect('B', 'O'))
+            fgc.update(fgc.append_connect('A', 'O'))
+            rgc.update(rgc.direct_connect('I', 'A'))
+            rgc.update(fgc.move_row_cls('O', 'A', SRC_EP, True))
+            rgc.update(tgc.copy_rows(('B', 'O')))
         elif above_row == 'B':
             if _LOG_DEBUG:
                 _logger.debug("Case 5: Has rows A & B and insert above B")
-            fgc.update(_copy_clean_row(tgc, 'IC'))
-            fgc.update(_copy_row(tgc, 'A', DST_EP))
-            fgc.update(_copy_clean_row(tgc, 'A', SRC_EP))
-            fgc.update(_insert_as(igc, 'B'))
-            fgc.update(_direct_connect(fgc, 'A', 'O'))
-            fgc.update(_append_connect(fgc, 'B', 'O'))
-            rgc.update(_direct_connect(rgc, 'I', 'A'))
-            rgc.update(_move_row(fgc, 'O', None, 'A', SRC_EP, True))
-            rgc.update(_copy_row(tgc, 'BO'))
+            fgc.update(tgc.copy_rows(('I', 'C'), True))
+            fgc.update(tgc.copy_rows_dst_eps(('A',)))
+            fgc.update(tgc.copy_rows_src_eps(('A',), True))
+            fgc.update(igc.insert_row_as('B'))
+            fgc.update(fgc.direct_connect('A', 'O'))
+            fgc.update(fgc.append_connect('B', 'O'))
+            rgc.update(rgc.direct_connect('I', 'A'))
+            rgc.update(fgc.move_row_cls('O', 'A', SRC_EP, True))
+            rgc.update(tgc.copy_rows(('B', 'O')))
         else:
             if _LOG_DEBUG:
                 _logger.debug("Case 6: Has rows A & B and insert above O")
-            fgc.update(_copy_clean_row(tgc, 'IC'))
-            fgc.update(_copy_row(tgc, 'AB', DST_EP))
-            fgc.update(_copy_clean_row(tgc, 'AB', SRC_EP))
-            fgc.update(_direct_connect(fgc, 'A', 'O'))
-            fgc.update(_append_connect(fgc, 'B', 'O'))
-            rgc.update(_direct_connect(rgc, 'I', 'A'))
-            rgc.update(_move_row(fgc, 'O', None, 'A', SRC_EP, True))
-            rgc.update(_insert_as(igc, 'B'))
-            rgc.update(_copy_clean_row(tgc, 'O'))
+            fgc.update(tgc.copy_rows(('I', 'C'), True))
+            fgc.update(tgc.copy_rows_dst_eps(('A', 'B')))
+            fgc.update(tgc.copy_rows_src_eps(('A', 'B'), True))
+            fgc.update(fgc.direct_connect('A', 'O'))
+            fgc.update(fgc.append_connect('B', 'O'))
+            rgc.update(rgc.direct_connect('I', 'A'))
+            rgc.update(fgc.move_row_cls('O', 'A', SRC_EP, True))
+            rgc.update(igc.insert_row_as('B'))
+            rgc.update(tgc.copy_row('O', True))
 
     # Case 1 is special because rgc is invalid by definition. In this case a
     # gc_graph normalization is forced to try and avoid the inevitable steady
@@ -356,27 +152,24 @@ def _insert(igc_gcg, tgc_gcg, above_row):  # noqa: C901
         _logger.debug(f"tgc ({type(tgc_gcg)}):\n{pformat(tgc_gcg)}")
         _logger.debug(f"igc ({type(tgc_gcg)}):\n{pformat(igc_gcg)}")
         _logger.debug(f"Pre-completed rgc ({type(rgc)}):\n{pformat(rgc)}")
-    if not tgc_gcg.has_a():
-        rgc_graph = gc_graph()
-        rgc_graph.inject_graph(rgc)
+    if not tgc_gcg.has_a:
+        rgc_graph = gc_graph(i_graph=rgc)
         rgc_graph.normalize()
     else:
-        _complete_references(rgc)
-        rgc_graph = gc_graph()
-        rgc_graph.inject_graph(rgc)
+        rgc.complete_references()
+        rgc_graph = gc_graph(i_graph=rgc)
     if _LOG_DEBUG:
-        _logger.debug("Completed rgc:\n{}".format(pformat(rgc)))
+        _logger.debug("Completed rgc:\n{pformat(rgc)}")
 
     if fgc:
         if _LOG_DEBUG:
-            _logger.debug("Pre-completed fgc:\n{}".format(pformat(fgc)))
-        _complete_references(fgc)
-        fgc_graph = gc_graph()
-        fgc_graph.inject_graph(fgc)
+            _logger.debug("Pre-completed fgc:\n{pformat(fgc)}")
+        fgc.complete_references()
+        fgc_graph = gc_graph(i_graph=fgc)
         if _LOG_DEBUG:
-            _logger.debug("Completed fgc:\n{}".format(pformat(fgc)))
+            _logger.debug("Completed fgc:\n{pformat(fgc)}")
     else:
-        fgc_graph = 0
+        fgc_graph = gc_graph()
     return rgc_graph, fgc_graph
 
 
@@ -424,7 +217,6 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
         return (target_gc, {})
     if above_row is None:
         above_row = 'ABO'[randint(0, 2)]
-
 
     rgc_graph = deepcopy(target_gc['igraph'])
     rgc = {
