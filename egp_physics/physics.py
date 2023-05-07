@@ -1,45 +1,51 @@
 """The operations that can be performed on a GC."""
-from copy import copy, deepcopy
-from logging import DEBUG, NullHandler, getLogger, Logger
-from pprint import pformat
-from random import randint, choice
-from numpy import array, float32, isfinite
-from numpy.random import choice as weighted_choice
 from collections.abc import Iterable
-from typing import Union, LiteralString, Any, Literal
+from copy import copy, deepcopy
+from logging import DEBUG, Logger, NullHandler, getLogger
+from pprint import pformat
+from random import choice, randint
+from typing import Literal, LiteralString, Union
 
-from egp_types.ep_type import vtype, interface_definition
-from egp_types.gc_graph import DST_EP, SRC_EP, ep_idx, gc_graph, hash_ep, hash_ref, ref_idx
-from egp_types.eGC import eGC
-from egp_types.internal_graph import internal_graph, EndPointDict, SrcEndPointDict, DstEndPointDict
-from egp_types.reference import ref_str
-from egp_types.gc_type_tools import is_pgc, NUM_PGC_LAYERS, M_MASK
 from egp_execution.execution import create_callable
 from egp_stores.gene_pool_cache import gene_pool_cache
-from egp_types.egp_typing import Row
+from egp_stores.gene_pool import gene_pool
+from egp_types.eGC import eGC
+from egp_types.ep_type import interface_definition, vtype
+from egp_types.gc_graph import DST_EP, SRC_EP, gc_graph
+from egp_types.gc_type_tools import M_MASK, NUM_PGC_LAYERS, is_pgc
+from egp_types.internal_graph import internal_graph
+from egp_types.reference import ref_str
+from numpy import array, float32, isfinite
+from numpy.random import choice as weighted_choice
 
 _logger: Logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
 _LOG_DEBUG: bool = _logger.isEnabledFor(DEBUG)
 
 # Steady state exception filters.
-_EXCLUSION_LIMIT: LiteralString = ' AND NOT ({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT 1'
+_LMT: LiteralString = ' AND NOT ({exclude_column} = ANY({exclusions})) ORDER BY RANDOM() LIMIT 1'
 
 # TODO: Replace with a localisation hash?
-_MATCH_TYPE_0_SQL: LiteralString = ('WHERE {input_types} = {itypes}::SMALLINT[] AND {inputs} = {iidx} AND {output_types} = {otypes}::SMALLINT[] AND {outputs} = {oidx}'
-                     + _EXCLUSION_LIMIT)
-_MATCH_TYPE_1_SQL: LiteralString = 'WHERE {input_types} = {itypes}::SMALLINT[] AND {output_types} = {otypes}::SMALLINT[] AND {outputs} = {oidx}' + _EXCLUSION_LIMIT
-_MATCH_TYPE_2_SQL: LiteralString = 'WHERE {input_types} = {itypes}::SMALLINT[] AND {inputs} = {iidx} AND {output_types} = {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
-_MATCH_TYPE_3_SQL: LiteralString = 'WHERE {input_types} = {itypes}::SMALLINT[] AND {output_types} = {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
-_MATCH_TYPE_4_SQL: LiteralString = 'WHERE {input_types} <@ {itypes}::SMALLINT[] AND {output_types} = {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
-_MATCH_TYPE_5_SQL: LiteralString = 'WHERE {input_types} <@ {itypes}::SMALLINT[] AND {output_types} @> {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
-_MATCH_TYPE_6_SQL: LiteralString = 'WHERE {input_types} <@ {itypes}::SMALLINT[] AND {output_types} && {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
-_MATCH_TYPE_7_SQL: LiteralString = 'WHERE {input_types} && {itypes}::SMALLINT[] AND {output_types} && {otypes}::SMALLINT[]' + _EXCLUSION_LIMIT
-_MATCH_TYPE_8_SQL: LiteralString = 'WHERE {output_types} && {otypes}::SMALLINT[] ' + _EXCLUSION_LIMIT
-_MATCH_TYPE_9_SQL: LiteralString = 'WHERE {input_types} && {itypes}::SMALLINT[] ' + _EXCLUSION_LIMIT
+_IT: LiteralString = '{input_types}'
+_OT: LiteralString = '{output_types}'
+_ITS: LiteralString = '{itypes}::SMALLINT[]'
+_OTS: LiteralString = '{otypes}::SMALLINT[]'
+_IDX: LiteralString = '{inputs} = {iidx}'
+_ODX:  LiteralString = '{outputs} = {oidx}'
+
+_MATCH_TYPE_0_SQL: LiteralString = 'WHERE ' + _IT + ' = ' + _ITS + ' AND ' + _IDX + ' AND ' + _OT + ' = ' + _OTS + ' AND ' + _ODX + _LMT
+_MATCH_TYPE_1_SQL: LiteralString = 'WHERE ' + _IT + ' = ' + _ITS + ' AND ' + _OT + ' = ' + _OTS + ' AND ' + _ODX + _LMT
+_MATCH_TYPE_2_SQL: LiteralString = 'WHERE ' + _IT + ' = ' + _ITS + ' AND ' + _IDX + ' AND ' + _OT + ' = ' + _OTS + _LMT
+_MATCH_TYPE_3_SQL: LiteralString = 'WHERE ' + _IT + ' = ' + _ITS + ' AND ' + _OT + ' = ' + _OTS + _LMT
+_MATCH_TYPE_4_SQL: LiteralString = 'WHERE ' + _IT + ' <@ ' + _ITS + ' AND ' + _OT + ' = ' + _OTS + _LMT
+_MATCH_TYPE_5_SQL: LiteralString = 'WHERE ' + _IT + ' <@ ' + _ITS + ' AND ' + _OT + ' @> ' + _OTS + _LMT
+_MATCH_TYPE_6_SQL: LiteralString = 'WHERE ' + _IT + ' <@ ' + _ITS + ' AND ' + _OT + ' && ' + _OTS + _LMT
+_MATCH_TYPE_7_SQL: LiteralString = 'WHERE ' + _IT + ' && ' + _ITS + ' AND ' + _OT + ' && ' + _OTS + _LMT
+_MATCH_TYPE_8_SQL: LiteralString = 'WHERE ' + _OT + ' && ' + _OTS + ' ' + _LMT
+_MATCH_TYPE_9_SQL: LiteralString = 'WHERE ' + _IT + ' && ' + _ITS + ' ' + _LMT
 # Catch for when xtypes is an empty set.
-_MATCH_TYPE_10_SQL: LiteralString = 'WHERE {output_types} = {otypes}::SMALLINT[] ' + _EXCLUSION_LIMIT
-_MATCH_TYPE_11_SQL: LiteralString = 'WHERE {input_types} = {itypes}::SMALLINT[] ' + _EXCLUSION_LIMIT
+_MATCH_TYPE_10_SQL: LiteralString = 'WHERE ' + _OT + ' = ' + _OTS + ' ' + _LMT
+_MATCH_TYPE_11_SQL: LiteralString = 'WHERE ' + _IT + ' = ' + _ITS + ' ' + _LMT
 
 
 _MATCH_TYPES_SQL: tuple[LiteralString, ...] = (
@@ -60,7 +66,7 @@ _NUM_MATCH_TYPES: int = len(_MATCH_TYPES_SQL)
 
 
 # PGC Constants
-RANDOM_PGC_SIGNATURE: bytes = b'\x00'*32
+RANDOM_PGC_SIGNATURE: bytes = b'\x00' * 32
 _PGC_PARENTAL_PROTECTION_FACTOR: float = 0.75
 _POPULATION_PARENTAL_PROTECTION_FACTOR: float = 0.75
 
@@ -89,7 +95,7 @@ def _insert(igc_gcg: gc_graph, tgc_gcg: gc_graph, above_row: Literal['A', 'B', '
     fgc: internal_graph = internal_graph()
 
     # TODO: There are opportunities to reduce overhead by making some internal_graph manipulation functions
-    # act on self rather than returning a dictionary to update (into self) 
+    # act on self rather than returning a dictionary to update (into self)
     if not tgc_gcg.has_a:
         if _LOG_DEBUG:
             _logger.debug("Case 1: No row A or B")
@@ -173,7 +179,7 @@ def _insert(igc_gcg: gc_graph, tgc_gcg: gc_graph, above_row: Literal['A', 'B', '
     return rgc_graph, fgc_graph
 
 
-def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
+def stablize(gms: gene_pool, target_gc: eGC, insert_gc: None | eGC = None, above_row: None | Literal['A', 'B', 'O'] = None):  # noqa: C901
     """Insert insert_gc into target_gc above row 'above_row'.
 
     If insert_gc is None then the target_gc is assessed for stability. If it
@@ -203,28 +209,27 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
 
     Args
     ----
-    gms (gene_pool or genomic_library): A source of genetic material.
-    target_gc (eGC): eGC to insert insert_gc into.
-    insert_gc (eGC): eGC to insert into target_gc.
-    above_row (string): One of 'A', 'B' or 'O'.
+    gms: A source of genetic material & references. Needs to be in the context of the sub-process.
+    target_gc: eGC to insert insert_gc into.
+    insert_gc: eGC to insert into target_gc.
+    above_row: One of 'A', 'B' or 'O'.
 
     Returns
     -------
     (rgc, {ref: fgc}): List of fGC's. First FGC is the insert_gc followed by fgc's
     created to stabilise rgc.
     """
-    if target_gc['igraph'].has_f():
+    if target_gc['igraph'].has_f:
         return (target_gc, {})
-    if above_row is None:
-        above_row = 'ABO'[randint(0, 2)]
+    _above_row: str = 'ABO'[randint(0, 2)] if above_row is None else above_row
 
-    rgc_graph = deepcopy(target_gc['igraph'])
+    rgc_graph: gc_graph = deepcopy(target_gc['igraph'])
     rgc = {
         'graph': rgc_graph.app_graph,
         'igraph': rgc_graph,
         'ancestor_a_ref': target_gc['ref'],
         'ancestor_b_ref': None,
-        'ref': _GC.next_reference(),
+        'ref': gms.next_reference(),
         'gca_ref': target_gc['gca_ref'],
         'gcb_ref': target_gc['gcb_ref']
     }
@@ -237,30 +242,32 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
                 assert rgc_graph.validate()
                 _logger.debug('Target GC is stable & nothing to insert.')
             return (target_gc, {})
-        if _LOG_DEBUG: _logger.debug('Target GC is unstable & nothing to insert.')
+        if _LOG_DEBUG:
+            _logger.debug('Target GC is unstable & nothing to insert.')
         work_stack = [steady_state_exception(gms, rgc)]
     else:
-        if _LOG_DEBUG: _logger.debug('Inserting into Target GC.')
+        if _LOG_DEBUG:
+            _logger.debug('Inserting into Target GC.')
         insert_gc.setdefault('ancestor_a_ref', None)
         insert_gc.setdefault('ancestor_b_ref', None)
-        work_stack = [(rgc, insert_gc, above_row)]
+        work_stack = [(rgc, insert_gc, _above_row)]
 
     fgc_dict = {}
     new_tgc = None
     while work_stack and work_stack[0] is not None:
         if _LOG_DEBUG:
-            _logger.debug("Work stack depth: {}".format(len(work_stack)))
+            _logger.debug(f"Work stack depth: {len(work_stack)}")
         fgc = {'ancestor_a_ref': None, 'ancestor_b_ref': None}
         rgc = {'ancestor_a_ref': None, 'ancestor_b_ref': None}
-        target_gc, insert_gc, above_row = work_stack.pop(0)
+        target_gc, insert_gc, _above_row = work_stack.pop(0)
         if _LOG_DEBUG:
-            _logger.debug(f"Work: Target={ref_str(target_gc['ref'])}, Insert={ref_str(insert_gc['ref'])}, Above Row={above_row}")
+            _logger.debug(f"Work: Target={ref_str(target_gc['ref'])}, Insert={ref_str(insert_gc['ref'])}, Above Row={_above_row}")
         # TODO: Get rid of None (make it None)
 
         # Insert into the graph
         tgc_graph = target_gc['igraph'] if 'igraph' in target_gc else gc_graph(target_gc['graph'])
         igc_graph = insert_gc['igraph'] if 'igraph' in insert_gc else gc_graph(insert_gc['graph'])
-        rgc_graph, fgc_graph = _insert(igc_graph, tgc_graph, above_row)
+        rgc_graph, fgc_graph = _insert(igc_graph, tgc_graph, _above_row)
         if fgc_graph:
             fgc_steady = fgc_graph.normalize()
             if _LOG_DEBUG:
@@ -283,7 +290,7 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
             rgc['gcb_ref'] = None
             rgc['ancestor_b_ref'] = insert_gc['ref']
         elif not tgc_graph.has_b():
-            if above_row == 'A':  # Case 2
+            if _above_row == 'A':  # Case 2
                 if _LOG_DEBUG:
                     _logger.debug("Case 2")
                 rgc['gca_ref'] = insert_gc['ref']
@@ -304,7 +311,7 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
                 rgc['gcb_ref'] = insert_gc['ref']
                 rgc['ancestor_b_ref'] = insert_gc['ref']
         else:  # Has row A & row B
-            if above_row == 'A':  # Case 4
+            if _above_row == 'A':  # Case 4
                 if _LOG_DEBUG:
                     _logger.debug("Case 4")
                 fgc['gca_ref'] = insert_gc['ref']
@@ -315,13 +322,13 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
                 rgc['gca_ref'] = fgc['ref']
                 rgc['gcb_ref'] = target_gc['gcb_ref']
                 rgc['ancestor_b_ref'] = fgc['ref']
-            elif above_row == 'B':  # Case 5
+            elif _above_row == 'B':  # Case 5
                 if _LOG_DEBUG:
                     _logger.debug("Case 5")
                 fgc['gca_ref'] = target_gc['gca_ref']
                 fgc['gcb_ref'] = insert_gc['ref']
                 fgc['ancestor_a_ref'] = insert_gc['ref']
-                fgc['ancestor_b_ref'] = target_gc['ref'] if target_gc['ref'] in fgc_dict else target_gc['ancestor_a_ref'] 
+                fgc['ancestor_b_ref'] = target_gc['ref'] if target_gc['ref'] in fgc_dict else target_gc['ancestor_a_ref']
                 fgc['ref'] = _GC.next_reference()
                 rgc['gca_ref'] = fgc['ref']
                 rgc['gcb_ref'] = target_gc['gcb_ref']
@@ -344,11 +351,12 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
         # and the new_tgc if it is defined.
         #
         # In the case where target_gc is unstable it is not in fgc_dict
-        # but will appear 
+        # but will appear
         # TODO: There must be a more efficient way of doing this
         new_ref = rgc['ref'] = _GC.next_reference()
-        old_ref = target_gc['ref'] 
-        if _LOG_DEBUG: _logger.debug(f"Replacing {ref_str(old_ref)} with {ref_str(new_ref)}.")
+        old_ref = target_gc['ref']
+        if _LOG_DEBUG:
+            _logger.debug(f"Replacing {ref_str(old_ref)} with {ref_str(new_ref)}.")
         for nfgc in fgc_dict.values():
             for ref in ('gca_ref', 'gcb_ref', 'ancestor_a_ref', 'ancestor_b_ref'):
                 if nfgc[ref] == old_ref:
@@ -364,16 +372,18 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
         # (i.e. does not end up being the RGC of an unstable FGC)
         if fgc_graph:
             if not fgc_steady:
-                if _LOG_DEBUG: _logger.debug(f"FGC ref {ref_str(fgc['ref'])} is unstable.")
+                if _LOG_DEBUG:
+                    _logger.debug(f"FGC ref {ref_str(fgc['ref'])} is unstable.")
                 work_stack.insert(0, steady_state_exception(gms, fgc))
             else:
                 if _LOG_DEBUG:
-                    assert(fgc_graph.validate())
+                    assert (fgc_graph.validate())
                     _logger.debug(f"FGC ref {ref_str(fgc['ref'])} added to fgc_dict.")
                 fgc_dict[fgc['ref']] = mGC(gc=fgc)
 
         if not rgc_steady:
-            if _LOG_DEBUG: _logger.debug(f"RGC ref {ref_str(rgc['ref'])} is unstable.")
+            if _LOG_DEBUG:
+                _logger.debug(f"RGC ref {ref_str(rgc['ref'])} is unstable.")
             work_stack.insert(0, steady_state_exception(gms, rgc))
         else:
             if new_tgc is None:
@@ -393,7 +403,7 @@ def stablize(gms, target_gc, insert_gc=None, above_row=None):  # noqa: C901
     if _LOG_DEBUG:
         slash_n = '\n'
         _logger.debug(f"fgc_dict details:\n{slash_n.join(ref_str(k) + ':' + slash_n + str(v) for k, v in fgc_dict.items())}")
-        #TODO: target_gc & new_tgc interface must be the same. Validate.
+        # TODO: target_gc & new_tgc interface must be the same. Validate.
 
     return (None, None) if work_stack else (new_tgc, fgc_dict)
 
@@ -426,73 +436,74 @@ def gc_insert(gms, target_gc, insert_gc=None, above_row=None):
         return ggcs[0]
     return (None,)
 
+
 def stack(self, lower_graph: Self) -> Self | None:
-        """Stack this graph on top of the lower_graph.
+    """Stack this graph on top of the lower_graph.
 
-        Graph upper_graph (self) is stacked on lower_graph to make gC i.e. gC inputs are upper_graph's inputs
-        and gC's outputs are lower_graph's outputs:
-            1. gC's inputs directly connect to upper_graph's inputs, 1:1 in order
-            2. lower_graph's inputs preferentially connect to upper_graph's outputs 1:1
-            3. lower_graph's outputs directly connect to gC's outputs, 1:1 in order
-            4. Any upper_graph's outputs that are not connected to lower_graph inputs create new gC outputs
-            5. Any lower_graphs input that are not connected to upper_graph outputs create new gC inputs
+    Graph upper_graph (self) is stacked on lower_graph to make gC i.e. gC inputs are upper_graph's inputs
+    and gC's outputs are lower_graph's outputs:
+        1. gC's inputs directly connect to upper_graph's inputs, 1:1 in order
+        2. lower_graph's inputs preferentially connect to upper_graph's outputs 1:1
+        3. lower_graph's outputs directly connect to gC's outputs, 1:1 in order
+        4. Any upper_graph's outputs that are not connected to lower_graph inputs create new gC outputs
+        5. Any lower_graphs input that are not connected to upper_graph outputs create new gC inputs
 
-        Stacking only works if there is at least 1 connection from upper_graph's outputs to lower_graph's inputs.
+    Stacking only works if there is at least 1 connection from upper_graph's outputs to lower_graph's inputs.
 
-        Args
-        ----
-        lower_graph: Graph to sit on top of.
+    Args
+    ----
+    lower_graph: Graph to sit on top of.
 
-        Returns
-        -------
-        A new graph or None if stacking could not result in a valid graph.
-        """
-        # TODO: Stacking is inserting under row O which changes the output interface
-        # that means it cannot be done on a sub-GC - but to what end?
+    Returns
+    -------
+    A new graph or None if stacking could not result in a valid graph.
+    """
+    # TODO: Stacking is inserting under row O which changes the output interface
+    # that means it cannot be done on a sub-GC - but to what end?
 
-        # Create all the end points
-        ep_list = []
-        for ep in filter(lower_graph.rows_filter(('I', 'O')), lower_graph.graph.values()):
-            row, idx, typ = ep.row, ep.idx, ep.typ
-            if row == 'I':
-                ep_list.append([False, 'B', idx, typ, []])
-            elif row == 'O':
-                ep_list.append([True, 'B', idx, typ, [['O', idx]]])
-                ep_list.append([False, 'O', idx, typ, [['B', idx]]])
+    # Create all the end points
+    ep_list = []
+    for ep in filter(lower_graph.rows_filter(('I', 'O')), lower_graph.graph.values()):
+        row, idx, typ = ep.row, ep.idx, ep.typ
+        if row == 'I':
+            ep_list.append([False, 'B', idx, typ, []])
+        elif row == 'O':
+            ep_list.append([True, 'B', idx, typ, [['O', idx]]])
+            ep_list.append([False, 'O', idx, typ, [['B', idx]]])
 
-        for ep in filter(self.rows_filter(('I', 'O')), self.i_graph.values()):
-            row, idx, typ = ep.row, ep.idx, ep.typ
-            if row == 'I':
-                ep_list.append([True, 'I', idx, typ, [['A', idx]]])
-                ep_list.append([False, 'A', idx, typ, [['I', idx]]])
-            elif row == 'O':
-                ep_list.append([True, 'A', idx, typ, []])
+    for ep in filter(self.rows_filter(('I', 'O')), self.i_graph.values()):
+        row, idx, typ = ep.row, ep.idx, ep.typ
+        if row == 'I':
+            ep_list.append([True, 'I', idx, typ, [['A', idx]]])
+            ep_list.append([False, 'A', idx, typ, [['I', idx]]])
+        elif row == 'O':
+            ep_list.append([True, 'A', idx, typ, []])
 
-        # Make a gC gc_graph object
-        gC = gc_graph()
-        for ep in ep_list:
-            gC._add_ep(ep)
+    # Make a gC gc_graph object
+    gC = gc_graph()
+    for ep in ep_list:
+        gC._add_ep(ep)
 
-        # Preferentially connect A --> B but only 1:1
-        gA_gB_connection = False
-        for ep in filter(gC.dst_filter(gC.row_filter('B')), gC.graph.values()):
-            gA_gB_connection = gA_gB_connection or gC.add_connection([ep], gC.row_filter('A', gC.unreferenced_filter()))
+    # Preferentially connect A --> B but only 1:1
+    gA_gB_connection = False
+    for ep in filter(gC.dst_filter(gC.row_filter('B')), gC.graph.values()):
+        gA_gB_connection = gA_gB_connection or gC.add_connection([ep], gC.row_filter('A', gC.unreferenced_filter()))
 
-        if gA_gB_connection:
-            # Extend O with any remaining A src's
-            for ep in tuple(filter(gC.src_filter(gC.row_filter('A', gC.unreferenced_filter())), gC.graph.values())):
-                idx = gC.num_outputs()
-                gC._add_ep([DST_EP, 'O', idx, ep.typ, [['A', ep.idx]]])
-                ep.refs.append(['O', idx])
+    if gA_gB_connection:
+        # Extend O with any remaining A src's
+        for ep in tuple(filter(gC.src_filter(gC.row_filter('A', gC.unreferenced_filter())), gC.graph.values())):
+            idx = gC.num_outputs()
+            gC._add_ep([DST_EP, 'O', idx, ep.typ, [['A', ep.idx]]])
+            ep.refs.append(['O', idx])
 
-            # Extend I with any remaining B dst's
-            for ep in tuple(filter(gC.dst_filter(gC.row_filter('B', gC.unreferenced_filter())), gC.graph.values())):
-                idx = gC.num_inputs()
-                gC._add_ep([SRC_EP, 'I', idx, ep.typ, [['B', ep.idx]]])
-                ep.refs.append(['I', idx])
+        # Extend I with any remaining B dst's
+        for ep in tuple(filter(gC.dst_filter(gC.row_filter('B', gC.unreferenced_filter())), gC.graph.values())):
+            idx = gC.num_inputs()
+            gC._add_ep([SRC_EP, 'I', idx, ep.typ, [['B', ep.idx]]])
+            ep.refs.append(['I', idx])
 
-            return gC
-        return None
+        return gC
+    return None
 
 
 def gc_stack(gms, top_gc, bottom_gc):
@@ -850,7 +861,7 @@ def proximity_select(gms, xputs):
     #   b) https://stackoverflow.com/questions/42089781/sql-if-select-returns-nothing-then-do-another-select ?
     #   c) Cache general queries (but this means missing out on new options) and randomly select from a list of candidates.
     #   d) Batch queries (but this is architecturally tricky)
-    #   e) Optimize DB for these queries. 
+    #   e) Optimize DB for these queries.
     #   f) Cache queries at the DB, in the parent process & in the sub-process?
     #   g) This should first search the GP and fallback to the GL
     match_type = randint(0, _NUM_MATCH_TYPES - 1)
@@ -889,7 +900,8 @@ def steady_state_exception(gms, fgc):
     -------
     (fGC, fGC, str): (target_gc, insert_gc, 'A', 'B' or 'O') or None
     """
-    if _LOG_DEBUG: _logger.debug(f"Steady state exception thrown for GC ref {ref_str(fgc['ref'])}.")
+    if _LOG_DEBUG:
+        _logger.debug(f"Steady state exception thrown for GC ref {ref_str(fgc['ref'])}.")
     fgc_graph = fgc['igraph']
 
     # Find unconnected destination endpoints. Determine highest row & endpoint types.
@@ -920,12 +932,13 @@ def steady_state_exception(gms, fgc):
 
     return (fgc, eGC(insert_gc), above_row)
 
+
 def create_SMS(gp, pgc, ggc):
     """Create a Super Mutation Sequence (SMS).
-    
+
     pgc has positively mutated gc's parent to create ggc.
     The chains of mutations that led to this positive effect are called SMS's.
-    This function creates them as stand alone pGC's in the GP. 
+    This function creates them as stand alone pGC's in the GP.
 
     Modifies gp & ggc.
 
@@ -982,7 +995,7 @@ def create_SMS(gp, pgc, ggc):
 
 
 # TODO: use pGC_fitness to call create_SMS when delta_fitness is positive
-def pGC_fitness(gp: gene_pool_cache, pgc: _gGC, ggc: _gGC, delta_fitness:Union[float, None]) -> int:
+def pGC_fitness(gp: gene_pool_cache, pgc: _gGC, ggc: _gGC, delta_fitness: Union[float, None]) -> int:
     """Update the fitness of the pGC and the pGC's that created it.
 
     pgc is modified.
@@ -1019,7 +1032,7 @@ def pGC_fitness(gp: gene_pool_cache, pgc: _gGC, ggc: _gGC, delta_fitness:Union[f
     return evolutions
 
 
-def _pGC_fitness(pgc:_gGC, xgc:_gGC, delta_fitness:Union[float, None], depth:int) -> float:
+def _pGC_fitness(pgc: _gGC, xgc: _gGC, delta_fitness: Union[float, None], depth: int) -> float:
     """Update the fitness of the pGC.
 
     pgc is modified.
@@ -1041,7 +1054,7 @@ def _pGC_fitness(pgc:_gGC, xgc:_gGC, delta_fitness:Union[float, None], depth:int
 
     Returns
     -------
-    Mapped delta_fitness 
+    Mapped delta_fitness
     """
     old_count = pgc['pgc_f_count'][depth]
     pgc['pgc_f_count'][depth] += 1
@@ -1050,7 +1063,7 @@ def _pGC_fitness(pgc:_gGC, xgc:_gGC, delta_fitness:Union[float, None], depth:int
         delta_fitness = -1.0
 
     pgc['pgc_fitness'][depth] = (old_count * pgc['pgc_fitness'][depth] + (delta_fitness / 2 + 0.5)) / pgc['pgc_f_count'][depth]
-            
+
     return delta_fitness
 
 
@@ -1111,7 +1124,7 @@ def evolve_physical(gp, pgc, depth):
     """
     if not (pgc['pgc_f_count'][depth] & M_MASK):
         pgc['pgc_delta_fitness'][depth] = 0.0
-        gp.layer_evolutions[depth] += 1 # FIXME: Ugh!
+        gp.layer_evolutions[depth] += 1  # FIXME: Ugh!
 
         ppgc = select_pGC(gp, pgc, depth + 1)
         wrapped_ppgc_callable = create_callable(ppgc, gp.pool)
@@ -1131,7 +1144,7 @@ def evolve_physical(gp, pgc, depth):
     return False
 
 
-def select_pGC(gp:gene_pool_cache, xgc_refs:Iterable[int], depth:int=0) -> list[_gGC]:
+def select_pGC(gp: gene_pool_cache, xgc_refs: Iterable[int], depth: int = 0) -> list[_gGC]:
     """Select a pgc to evolve xgc.
 
     A pGC is selected to act on each xGC.
@@ -1164,7 +1177,7 @@ def select_pGC(gp:gene_pool_cache, xgc_refs:Iterable[int], depth:int=0) -> list[
         xgc = gp[xgc_ref]
 
         # Intergenerational pGC selection
-        next_pgc_ref = xgc['next_pgc_ref'] 
+        next_pgc_ref = xgc['next_pgc_ref']
         if next_pgc_ref is not None:
             xgc['next_pgc_ref'] = None
             matched_pgcs.append(gp.pool[next_pgc_ref])
@@ -1227,7 +1240,7 @@ def select_pGC(gp:gene_pool_cache, xgc_refs:Iterable[int], depth:int=0) -> list[
                     if category == 2:
                         matched_pgcs.append(weighted_choice(negative_pgcs, p=negative_normalised_weights))
                         break
- 
+
                     # An effective category == 3 (would have broken out of the while loop before now if it wasn't)
                     if _LOG_DEBUG:
                         _logger.debug(f'Category 3 selection event.')
@@ -1235,11 +1248,11 @@ def select_pGC(gp:gene_pool_cache, xgc_refs:Iterable[int], depth:int=0) -> list[
                         assert positive_pgcs is None, "Category 3 pGC selection can only be reached from a first iteration category 2 selection!"
                         assert not negative_pgcs, "Category 3 pGC selection can only be reached if there are no negative pGCs!"
 
-            else: # Category == 0
+            else:  # Category == 0
                 fitness = array(xgc['effective_pgc_fitness'], dtype=float32)
                 normalised_weights = fitness / fitness.sum()
                 matched_pgcs.append(gp[weighted_choice(xgc['effective_pgc_refs'], p=normalised_weights)])
-    
+
     return matched_pgcs
 
 
