@@ -3,7 +3,7 @@ from collections.abc import Iterable
 from copy import copy, deepcopy
 from logging import DEBUG, Logger, NullHandler, getLogger
 from pprint import pformat
-from random import choice, randint
+from random import randint
 from typing import Literal, LiteralString, Union, Callable
 
 from egp_execution.execution import create_callable
@@ -21,7 +21,7 @@ from egp_types.dGC import dGC
 
 from numpy import array, float32, isfinite
 from numpy.random import choice as weighted_choice
-from .egp_typing import WorkStack, Work, NewGCDef
+from .egp_typing import WorkStack, Work, NewGCDef, InsertRow
 
 _logger: Logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
@@ -80,10 +80,10 @@ _PGC_PARENTAL_PROTECTION_FACTOR: float = 0.75
 _POPULATION_PARENTAL_PROTECTION_FACTOR: float = 0.75
 
 
-def default_dict_GC(ref: Callable[[], int]) -> dGC:
+def default_dict_gc(ref: Callable[[], int]) -> dGC:
     """Create a default DictGC with ref generated from ref()."""
     return {
-        'igraph': _EMPTY_GC_GRAPH,
+        'gc_graph': _EMPTY_GC_GRAPH,
         'ancestor_a_ref': None,
         'ancestor_b_ref': None,
         'ref': ref(),
@@ -92,8 +92,121 @@ def default_dict_GC(ref: Callable[[], int]) -> dGC:
     }
 
 
-def _insert(igc_gcg: gc_graph, tgc_gcg: gc_graph, above_row: Literal['I', 'A', 'B', 'O']) -> tuple[gc_graph, gc_graph]:  # noqa: C901
-    """Insert igc into the internal graph above row above_row.
+def _insert_graph_case_0(tig: internal_graph, iig: internal_graph, rig: internal_graph) -> None:
+    """Insert igc into tgc case 0."""
+    _logger.debug("Case 0: Stack")
+    rig.update(iig.copy_row('I', True))
+    rig.update(iig.insert_row_as('A'))
+    rig.update(tig.insert_row_as('B'))
+    rig.update(tig.copy_row('O', True))
+
+
+def _insert_graph_case_1(tig: internal_graph, iig: internal_graph, rig: internal_graph) -> None:
+    """Insert igc into tgc case 1."""
+    _logger.debug("Case 1: No row A or B")
+    rig.update(iig.insert_row_as('A'))
+    rig.update(tig.copy_row('O'))
+
+
+def _insert_graph_case_2(tig: internal_graph, iig: internal_graph, rig: internal_graph) -> None:
+    """Insert igc into tgc case 2."""
+    _logger.debug("Case 2: No row B and insert above A")
+    rig.update(iig.insert_row_as('A'))
+    rig.update(tig.move_row('A', 'B'))
+    rig.update(tig.copy_row('O'))
+    rig.redirect_refs('O', DST_EP, 'A', 'B')
+
+
+def _insert_graph_case_3(tig: internal_graph, iig: internal_graph, rig: internal_graph) -> None:
+    """Insert igc into tgc case 3."""
+    _logger.debug("Case 3: No row B and insert below A")
+    rig.update(tig.copy_rows(('A', 'O')))
+    rig.update(iig.insert_row_as('B'))
+
+
+def _insert_graph_case_4(tig: internal_graph, iig: internal_graph, rig: internal_graph, fig: internal_graph) -> None:
+    """Insert igc into tgc case 4."""
+    _logger.debug("Case 4: Has rows A & B and insert above A")
+    fig.update(tig.copy_rows(('I', 'C'), True))
+    fig.update(iig.insert_row_as('A'))
+    fig.update(tig.move_row('A', 'B'))
+    fig.update(fig.direct_connect('B', 'O'))
+    fig.update(fig.append_connect('A', 'O'))
+    rig.update(rig.direct_connect('I', 'A'))
+    rig.update(fig.move_row_cls('O', DST_EP, 'A', SRC_EP, True))
+    rig.update(tig.copy_rows(('B', 'O')))
+
+
+def _insert_graph_case_5(tig: internal_graph, iig: internal_graph, rig: internal_graph, fig: internal_graph) -> None:
+    """Insert igc into tgc case 5."""
+    _logger.debug("Case 5: Has rows A & B and insert above B")
+    fig.update(tig.copy_rows(('I', 'C'), True))
+    fig.update(tig.copy_rows_dst_eps(('A',)))
+    fig.update(tig.copy_rows_src_eps(('A',), True))
+    fig.update(iig.insert_row_as('B'))
+    fig.update(fig.direct_connect('A', 'O'))
+    fig.update(fig.append_connect('B', 'O'))
+    rig.update(rig.direct_connect('I', 'A'))
+    rig.update(fig.move_row_cls('O', DST_EP, 'A', SRC_EP, True))
+    rig.update(tig.copy_rows(('B', 'O')))
+
+
+def _insert_graph_case_6(tig: internal_graph, iig: internal_graph, rig: internal_graph, fig: internal_graph) -> None:
+    """Insert igc into tgc case 6."""
+    _logger.debug("Case 6: Has rows A & B and insert above O")
+    fig.update(tig.copy_rows(('I', 'C'), True))
+    fig.update(tig.copy_rows_dst_eps(('A', 'B')))
+    fig.update(tig.copy_rows_src_eps(('A', 'B'), True))
+    fig.update(fig.direct_connect('A', 'O'))
+    fig.update(fig.append_connect('B', 'O'))
+    rig.update(rig.direct_connect('I', 'A'))
+    rig.update(fig.move_row_cls('O', DST_EP, 'A', SRC_EP, True))
+    rig.update(iig.insert_row_as('B'))
+    rig.update(tig.copy_row('O', True))
+
+
+def _insert_graph_case_7(tig: internal_graph, iig: internal_graph, fig: internal_graph) -> None:
+    """Insert igc into tgc case 7."""
+    fig.update(tig.move_row_cls('A', SRC_EP, 'I', SRC_EP, True))
+    fig.update(iig.insert_row_as('A'))
+    fig.update(tig.move_row('A', 'B', True))
+    fig.update(fig.direct_connect('I', 'B'))
+    fig.update(fig.direct_connect('B', 'O'))
+    fig.update(fig.append_connect('A', 'O'))
+
+
+def _insert_graph_case_8(tig: internal_graph, iig: internal_graph, fig: internal_graph) -> None:
+    """Insert igc into tgc case 8."""
+    fig.update(tig.move_row_cls('A', SRC_EP, 'I', SRC_EP, True))
+    fig.update(tig.copy_row('A', True))
+    fig.update(fig.direct_connect('I', 'A'))
+    fig.update(iig.insert_row_as('B'))
+    fig.update(fig.direct_connect('A', 'O'))
+    fig.update(fig.append_connect('B', 'O'))
+
+
+def _insert_graph_case_9(tig: internal_graph, iig: internal_graph, fig: internal_graph) -> None:
+    """Insert igc into tgc case 9."""
+    fig.update(tig.move_row_cls('B', SRC_EP, 'I', SRC_EP, True))
+    fig.update(iig.insert_row_as('A'))
+    fig.update(tig.copy_row('B', True))
+    fig.update(fig.direct_connect('I', 'B'))
+    fig.update(fig.direct_connect('B', 'O'))
+    fig.update(fig.append_connect('A', 'O'))
+
+
+def _insert_graph_case_10(tig: internal_graph, iig: internal_graph, fig: internal_graph) -> None:
+    """Insert igc into tgc case 10."""
+    fig.update(tig.move_row_cls('B', SRC_EP, 'I', SRC_EP, True))
+    fig.update(tig.move_row('B', 'A', True))
+    fig.update(fig.direct_connect('I', 'A'))
+    fig.update(iig.insert_row_as('B'))
+    fig.update(fig.direct_connect('A', 'O'))
+    fig.update(fig.append_connect('B', 'O'))
+
+
+def _insert_graph(tgcg: gc_graph, igcg: gc_graph, above_row: InsertRow) -> tuple[gc_graph, gc_graph]:
+    """Insert igc_gcg graph into tgc_gcg graph above row above_row.
 
     See https://docs.google.com/spreadsheets/d/1YQjrM91e5x30VUIRzipNYX3W7yiFlg6fy9wKbMTx1iY/edit?usp=sharing
     for more details (ask permission to view).
@@ -101,126 +214,232 @@ def _insert(igc_gcg: gc_graph, tgc_gcg: gc_graph, above_row: Literal['I', 'A', '
 
     Args
     ----
-    igc (gc_graph): Internal gc_graph format gc_graph to insert.
-    tgc (gc_graph): Internal gc_graph format gc_graph to insert into.
-    above_row (str): 'A', 'B' or 'O'
+    tgcg: Internal gc_graph format gc_graph to insert into.
+    igcg: Internal gc_graph format gc_graph to insert.
+    above_row: A valid row. Note that 'C' and 'U' are no-ops.
 
     Returns
     -------
-    (gc_graph, gc_graph): rgc, fgc
+    rig, fig: Result internal graph and formed internal graph
     """
-    tgc: internal_graph = tgc_gcg.i_graph
-    igc: internal_graph = igc_gcg.i_graph
-    fgc: internal_graph = internal_graph()
-    rgc: internal_graph = internal_graph()
+    tig: internal_graph = tgcg.i_graph
+    iig: internal_graph = igcg.i_graph
+    fig: internal_graph = internal_graph()
+    rig: internal_graph = internal_graph()
     if above_row != 'I':
-        rgc.update(tgc.copy_rows_src_eps(('I', 'C'), True))
+        if tgcg.has_f:
+            rig = deepcopy(tgcg.i_graph)
+        else:
+            rig.update(tig.copy_rows_src_eps(('I', 'C'), True))
 
     # TODO: There are opportunities to reduce overhead by making some internal_graph manipulation functions
     # act on self rather than returning a dictionary to update (into self)
     if above_row == 'I':
-        if _LOG_DEBUG:
-            _logger.debug("Case 0: Stack")
-        rgc.update(igc.copy_row('I', True))
-        rgc.update(igc.insert_row_as('A'))
-        rgc.update(tgc.insert_row_as('B'))
-        rgc.update(tgc.copy_row('O', True))
-    elif not tgc_gcg.has_a:
-        if _LOG_DEBUG:
-            _logger.debug("Case 1: No row A or B")
-        rgc.update(igc.insert_row_as('A'))
-        rgc.update(tgc.copy_row('O'))
-    elif not tgc_gcg.has_b:
-        if above_row == 'A':
-            if _LOG_DEBUG:
-                _logger.debug("Case 2: No row B and insert above A")
-            rgc.update(igc.insert_row_as('A'))
-            rgc.update(tgc.move_row('A', 'B'))
-            rgc.update(tgc.copy_row('O'))
-            rgc.redirect_refs('O', DST_EP, 'A', 'B')
+        _insert_graph_case_0(tig, iig, rig)
+    elif not tgcg.has_a:
+        _insert_graph_case_1(tig, iig, rig)
+    elif not tgcg.has_f:
+        if not tgcg.has_b:
+            if above_row == 'A':
+                _insert_graph_case_2(tig, iig, rig)
+            else:
+                _insert_graph_case_3(tig, iig, rig)
         else:
-            if _LOG_DEBUG:
-                _logger.debug("Case 3: No row B and insert below A")
-            rgc.update(tgc.copy_rows(('A', 'O')))
-            rgc.update(igc.insert_row_as('B'))
+            if above_row == 'A':
+                _insert_graph_case_4(tig, iig, rig, fig)
+            elif above_row == 'B':
+                _insert_graph_case_5(tig, iig, rig, fig)
+            else:
+                _insert_graph_case_6(tig, iig, rig, fig)
     else:
         if above_row == 'A':
-            if _LOG_DEBUG:
-                _logger.debug("Case 4: Has rows A & B and insert above A")
-            fgc.update(tgc.copy_rows(('I', 'C'), True))
-            fgc.update(igc.insert_row_as('A'))
-            fgc.update(tgc.move_row('A', 'B'))
-            fgc.update(fgc.direct_connect('B', 'O'))
-            fgc.update(fgc.append_connect('A', 'O'))
-            rgc.update(rgc.direct_connect('I', 'A'))
-            rgc.update(fgc.move_row_cls('O', 'A', SRC_EP, True))
-            rgc.update(tgc.copy_rows(('B', 'O')))
+            _insert_graph_case_7(tig, iig, fig)
+        elif above_row == 'O':
+            _insert_graph_case_8(tig, iig, fig)
         elif above_row == 'B':
-            if _LOG_DEBUG:
-                _logger.debug("Case 5: Has rows A & B and insert above B")
-            fgc.update(tgc.copy_rows(('I', 'C'), True))
-            fgc.update(tgc.copy_rows_dst_eps(('A',)))
-            fgc.update(tgc.copy_rows_src_eps(('A',), True))
-            fgc.update(igc.insert_row_as('B'))
-            fgc.update(fgc.direct_connect('A', 'O'))
-            fgc.update(fgc.append_connect('B', 'O'))
-            rgc.update(rgc.direct_connect('I', 'A'))
-            rgc.update(fgc.move_row_cls('O', 'A', SRC_EP, True))
-            rgc.update(tgc.copy_rows(('B', 'O')))
-        else:
-            if _LOG_DEBUG:
-                _logger.debug("Case 6: Has rows A & B and insert above O")
-            fgc.update(tgc.copy_rows(('I', 'C'), True))
-            fgc.update(tgc.copy_rows_dst_eps(('A', 'B')))
-            fgc.update(tgc.copy_rows_src_eps(('A', 'B'), True))
-            fgc.update(fgc.direct_connect('A', 'O'))
-            fgc.update(fgc.append_connect('B', 'O'))
-            rgc.update(rgc.direct_connect('I', 'A'))
-            rgc.update(fgc.move_row_cls('O', 'A', SRC_EP, True))
-            rgc.update(igc.insert_row_as('B'))
-            rgc.update(tgc.copy_row('O', True))
+            _insert_graph_case_9(tig, iig, fig)
+        elif above_row == 'P':
+            _insert_graph_case_10(tig, iig, fig)
 
     # Case 1 is special because rgc is invalid by definition. In this case a
     # gc_graph normalization is forced to try and avoid the inevitable steady
     # state exception.
     if _LOG_DEBUG:
-        _logger.debug(f"tgc ({type(tgc_gcg)}):\n{pformat(tgc_gcg)}")
-        _logger.debug(f"igc ({type(tgc_gcg)}):\n{pformat(igc_gcg)}")
-        _logger.debug(f"Pre-completed rgc ({type(rgc)}):\n{pformat(rgc)}")
-    if not tgc_gcg.has_a:
-        rgc_graph = gc_graph(i_graph=rgc)
-        rgc_graph.normalize()
+        _logger.debug(f"tgc ({type(tgcg)}):\n{pformat(tgcg)}")
+        _logger.debug(f"igc ({type(tgcg)}):\n{pformat(igcg)}")
+        _logger.debug(f"Pre-completed rgc ({type(rig)}):\n{pformat(rig)}")
+    if not tgcg.has_a:
+        rgc_gc_graph = gc_graph(i_graph=rig)
+        rgc_gc_graph.normalize()
     else:
-        rgc.complete_references()
-        rgc_graph = gc_graph(i_graph=rgc)
+        rig.complete_references()
+        rgc_gc_graph = gc_graph(i_graph=rig)
     if _LOG_DEBUG:
         _logger.debug("Completed rgc:\n{pformat(rgc)}")
 
-    if fgc:
+    if fig:
         if _LOG_DEBUG:
             _logger.debug("Pre-completed fgc:\n{pformat(fgc)}")
-        fgc.complete_references()
-        fgc_graph = gc_graph(i_graph=fgc)
+        fig.complete_references()
+        fgc_gc_graph = gc_graph(i_graph=fig)
         if _LOG_DEBUG:
             _logger.debug("Completed fgc:\n{pformat(fgc)}")
     else:
-        fgc_graph = gc_graph()
-    return rgc_graph, fgc_graph
+        fgc_gc_graph = gc_graph()
+    return rgc_gc_graph, fgc_gc_graph
 
 
-def stablize(gms: gene_pool, tgc: aGC, igc: None | aGC = None, above_row: None | Literal['I', 'A', 'B', 'O'] = None) -> NewGCDef:  # noqa: C901
+def stabilize(gms: gene_pool, tgc: aGC) -> NewGCDef:
+    """If tgc is not stable inse"""
+    if tgc['gc_graph'].is_stable():
+        if _LOG_DEBUG:
+            assert tgc['gc_graph'].validate()
+            _logger.debug('Target GC is stable.')
+        return (tgc, {})
+    if _LOG_DEBUG:
+        _logger.debug('Target GC is unstable.')
+    return _recursive_insert(gms, [steady_state_exception(gms, rgc)])
+
+
+def _gc_insert(gms: gene_pool, tgc: aGC, igc: aGC, above_row: InsertRow) -> NewGCDef:
     """Insert igc into tgc above row 'above_row'.
 
-    If insert_gc is None then the target_gc is assessed for stability. If it
-    is stable then [target_gc] will be returned otherwise a steady state exception
-    is 'thrown'.
+    Args
+    ----
+    gms: A source of genetic material & references. Needs to be in the context of the sub-process.
+    tgc: GC to insert insert_gc into.
+    igc: GC to insert into target_gc.
+    above_row: Insert above this row.
 
-    NOTE: If a steady state exception occurs for which a candidate cannot
-    be found in the GMS this function returns None.
+    Returns
+    -------
+    (rgc, {ref: fgc}): First fgc is the igc followed by fgc's
+    created to stabilise rgc.
+    """
+    rgcg: gc_graph = deepcopy(tgc['gc_graph'])
+    rgc: dGC = {
+        'graph': rgcg.app_graph,
+        'gc_graph': rgcg,
+        'ancestor_a_ref': tgc['ref'],
+        'ancestor_b_ref': None,
+        'ref': gms.next_reference(),
+        'gca_ref': tgc['gca_ref'],
+        'gcb_ref': tgc['gcb_ref']
+    }
 
-    A work stack is used to avoid recursion.
+    # If there is no gc_insert return the target if it is stable or
+    # throw a steady state exception.
+    if _LOG_DEBUG:
+        _logger.debug('Inserting into Target GC.')
+    igc.setdefault('ancestor_a_ref', None)
+    igc.setdefault('ancestor_b_ref', None)
+    return _recursive_insert(gms, [(rgc, igc, above_row)])
 
-    Insertion work is pushed onto the work_stack.
+
+def _insert_gc_case_0(tgc: aGC, igc: aGC, rgc: aGC) -> None:
+    """Insert igc data into tgc case 0."""
+    _logger.debug("Case 0: Stack")
+    rgc['gca_ref'] = igc['ref']
+    rgc['gcb_ref'] = tgc['ref']
+    rgc['ancestor_a_ref'] = igc['ref']
+    rgc['ancestor_b_ref'] = tgc['ref']
+
+
+def _insert_gc_case_1(igc: aGC, rgc: aGC) -> None:
+    """Insert igc data into tgc case 1."""
+    _logger.debug("Case 1")
+    rgc['gca_ref'] = igc['ref']
+    rgc['ancestor_b_ref'] = igc['ref']
+
+
+def _insert_gc_case_2(tgc: aGC, igc: aGC, rgc: aGC, fgc_dict: dict[int, aGC]) -> None:
+    """Insert igc data into tgc case 2."""
+    _logger.debug("Case 2")
+    rgc['gca_ref'] = igc['ref']
+    rgc['ancestor_b_ref'] = igc['ref']
+    if tgc['gca_ref'] is not None:
+        rgc['gcb_ref'] = tgc['gca_ref']
+    else:
+        rgc['gcb_ref'] = tgc['ref']
+        fgc_dict[tgc['ref']] = tgc
+
+
+def _insert_gc_case_3(tgc: aGC, igc: aGC, rgc: aGC, fgc_dict: dict[int, aGC]) -> None:
+    """Insert igc data into tgc case 3."""
+    _logger.debug("Case 3")
+    if tgc['gca_ref'] is not None:
+        rgc['gca_ref'] = tgc['gca_ref']
+    else:
+        rgc['gca_ref'] = tgc['ref']
+        fgc_dict[tgc['ref']] = tgc
+    rgc['gcb_ref'] = igc['ref']
+    rgc['ancestor_b_ref'] = igc['ref']
+
+
+def _insert_gc_case_4(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC, fgc_dict: dict[int, aGC]) -> None:
+    """Insert igc data into tgc case 4."""
+    _logger.debug("Case 4")
+    fgc['gca_ref'] = igc['ref']
+    fgc['gcb_ref'] = tgc['gca_ref']
+    fgc['ancestor_a_ref'] = igc['ref']
+    fgc['ancestor_b_ref'] = tgc['ref'] if tgc['ref'] in fgc_dict else tgc['ancestor_a_ref']
+    rgc['gca_ref'] = fgc['ref']
+    rgc['gcb_ref'] = tgc['gcb_ref']
+    rgc['ancestor_b_ref'] = fgc['ref']
+
+
+def _insert_gc_case_5(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC, fgc_dict: dict[int, aGC]) -> None:
+    """Insert igc data into tgc case 5."""
+    _logger.debug("Case 5")
+    fgc['gca_ref'] = tgc['gca_ref']
+    fgc['gcb_ref'] = igc['ref']
+    fgc['ancestor_a_ref'] = igc['ref']
+    fgc['ancestor_b_ref'] = tgc['ref'] if tgc['ref'] in fgc_dict else tgc['ancestor_a_ref']
+    rgc['gca_ref'] = fgc['ref']
+    rgc['gcb_ref'] = tgc['gcb_ref']
+    rgc['ancestor_b_ref'] = fgc['ref']
+
+
+def _insert_gc_case_6(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC, fgc_dict: dict[int, aGC]) -> None:
+    """Insert igc data into tgc case 6."""
+    _logger.debug("Case 6")
+    fgc['gca_ref'] = tgc['gca_ref']
+    fgc['gcb_ref'] = tgc['gcb_ref']
+    fgc['ancestor_a_ref'] = tgc['ref']
+    rgc['gca_ref'] = fgc['ref']
+    rgc['gcb_ref'] = igc['ref']
+    rgc['ancestor_a_ref'] = igc['ref']
+    rgc['ancestor_b_ref'] = fgc['ref']
+    fgc_dict[tgc['ref']] = tgc
+
+
+def _insert_gc_case_7(tgc: aGC, igc: aGC, fgc: aGC, fgc_dict: dict[int, aGC]) -> None:
+    """Insert igc data into tgc case 7."""
+    _logger.debug("Case 7")
+
+
+def _insert_gc_case_8(tgc: aGC, igc: aGC, fgc: aGC, fgc_dict: dict[int, aGC]) -> None:
+    """Insert igc data into tgc case 8."""
+    _logger.debug("Case 8")
+
+
+def _insert_gc_case_9(tgc: aGC, igc: aGC, fgc: aGC, fgc_dict: dict[int, aGC]) -> None:
+    """Insert igc data into tgc case 9."""
+    _logger.debug("Case 9")
+
+
+def _insert_gc_case_10(tgc: aGC, igc: aGC, fgc: aGC, fgc_dict: dict[int, aGC]) -> None:
+    """Insert igc data into tgc case 10."""
+    _logger.debug("Case 10")
+
+
+
+
+def _recursive_insert(gms: gene_pool, work_stack: WorkStack) -> NewGCDef:
+    """Recursively insert GC's until the target GC is stable.
+
+    A work stack is used to avoid actual recursion.
+
     While there is work to do:
         Pop work off the work stack.
         If the target_gc has a B row then to insert a GC will
@@ -233,159 +452,82 @@ def stablize(gms: gene_pool, tgc: aGC, igc: None | aGC = None, above_row: None |
         added to the top of the work stack. Steady state GC's are added to the
         return value, fgc to the back and tgc to the front, thus when the function
         returns the correct tgc will be at the head of the fgc_list.
+    
+        Args
+        ----
+        work_stack: List of (Target GC, Insert GC, above row) worl to do
 
-        If tgc has row F no insertion occurs.
-
-    Args
-    ----
-    gms: A source of genetic material & references. Needs to be in the context of the sub-process.
-    tgc: GC to insert insert_gc into.
-    igc: GC to insert into target_gc.
-    above_row: One of 'A', 'B' or 'O'.
-
-    Returns
-    -------
-    (rgc, {ref: fgc}): List of fGC's. First FGC is the insert_gc followed by fgc's
-    created to stabilise rgc.
+        Returns
+        -------
+        A new GC definition structure. 
     """
-    _above_row: str = 'IABO'[randint(0, 3)] if above_row is None else above_row
-    if tgc['igraph'].has_f and _above_row != 'I':
-        return (tgc, {})
-
-    rgc_graph: gc_graph = deepcopy(tgc['igraph'])
-    rgc: dGC = {
-        'graph': rgc_graph.app_graph,
-        'igraph': rgc_graph,
-        'ancestor_a_ref': tgc['ref'],
-        'ancestor_b_ref': None,
-        'ref': gms.next_reference(),
-        'gca_ref': tgc['gca_ref'],
-        'gcb_ref': tgc['gcb_ref']
-    }
-
-    # If there is no gc_insert return the target if it is stable or
-    # throw a steady state exception.
-    if igc is None:
-        if rgc_graph.is_stable():
-            if _LOG_DEBUG:
-                assert rgc_graph.validate()
-                _logger.debug('Target GC is stable & nothing to insert.')
-            return (tgc, {})
-        if _LOG_DEBUG:
-            _logger.debug('Target GC is unstable & nothing to insert.')
-        work_stack: WorkStack = [steady_state_exception(gms, rgc)]
-    else:
-        if _LOG_DEBUG:
-            _logger.debug('Inserting into Target GC.')
-        igc.setdefault('ancestor_a_ref', None)
-        igc.setdefault('ancestor_b_ref', None)
-        work_stack = [(rgc, igc, _above_row)]
-
     fgc_dict: dict[int, aGC] = {}
     new_tgc_flag: bool = False
-    new_tgc: dGC = default_dict_GC(int)
+    new_tgc: dGC = default_dict_gc(int)
     while work_stack:
         if _LOG_DEBUG:
             _logger.debug(f"Work stack depth: {len(work_stack)}")
 
-        fgc: dGC = default_dict_GC(gms.next_reference)
-        rgc: dGC = default_dict_GC(gms.next_reference)
-
-        # TODO: Get rid of None as an option. Make work ({}, {}, '')
-        work: Work | None = work_stack.pop(0)
-        assert work is not None
-        target_gc = work[0]
-        insert_gc = work[1]
-        _above_row = work[2]
+        fgc: dGC = default_dict_gc(gms.next_reference)
+        rgc: dGC = default_dict_gc(gms.next_reference)
+        work: Work = work_stack.pop(0)
+        tgc = work[0]
+        igc = work[1]
+        above_row = work[2]
 
         if _LOG_DEBUG:
-            _logger.debug(f"Work: Target={ref_str(target_gc.get('ref', 0))}, "
-                          f"Insert={ref_str(insert_gc.get('ref', 0))}, Above Row={_above_row}")
+            _logger.debug(f"Work: Target={ref_str(tgc.get('ref', 0))}, "
+                          f"Insert={ref_str(igc.get('ref', 0))}, Above Row={above_row}")
 
         # Insert into the graph
-        tgc_graph: gc_graph = target_gc['igraph']
-        igc_graph: gc_graph = insert_gc['igraph']
-        fgc_graph: gc_graph
-        rgc_graph, fgc_graph = _insert(igc_graph, tgc_graph, _above_row)
-        rgc_steady: bool = rgc_graph.normalize()
-        fgc_steady: bool = False
-        if fgc_graph:
-            fgc_steady = fgc_graph.normalize()
+        tgcg: gc_graph = tgc['gc_graph']
+        igcg: gc_graph = igc['gc_graph']
+        fgcg: gc_graph
+        rgcg: gc_graph
+        rgcg, fgcg = _insert_graph(tgcg, igcg, above_row)
+        rgcg_steady: bool = rgcg.normalize()
+        fgcg_steady: bool = False
+        if fgcg:
+            fgcg_steady = fgcg.normalize()
             if _LOG_DEBUG:
-                _logger.debug(f"Normalized fgc:\n{pformat(fgc_graph)}")
-            fgc['graph'] = fgc_graph.app_graph
-            fgc['igraph'] = fgc_graph
+                _logger.debug(f"Normalized fgc:\n{pformat(fgcg)}")
+            fgc['graph'] = fgcg.app_graph
+            fgc['gc_graph'] = fgcg
         if _LOG_DEBUG:
-            _logger.debug(f"Normalized rgc:\n{pformat(rgc_graph)}")
-        rgc['graph'] = rgc_graph.app_graph
-        rgc['igraph'] = rgc_graph
+            _logger.debug(f"Normalized rgc:\n{pformat(rgcg)}")
+        rgc['graph'] = rgcg.app_graph
+        rgc['gc_graph'] = rgcg
 
         # Insert into the GC
         # The insert_gc is always referenced in the tree of the final rgc
-        fgc_dict[insert_gc['ref']] = insert_gc
-        if _above_row == 'I':  # Case 0
-            rgc['gca_ref'] = insert_gc['ref']
-            rgc['gcb_ref'] = target_gc['ref']
-            rgc['ancestor_a_ref'] = insert_gc['ref']
-            rgc['ancestor_b_ref'] = target_gc['ref']
-        elif not tgc_graph.has_a:  # Case 1
-            if _LOG_DEBUG:
-                _logger.debug("Case 1")
-            rgc['gca_ref'] = insert_gc['ref']
-            rgc['ancestor_b_ref'] = insert_gc['ref']
-        elif not tgc_graph.has_b:
-            if _above_row == 'A':  # Case 2
-                if _LOG_DEBUG:
-                    _logger.debug("Case 2")
-                rgc['gca_ref'] = insert_gc['ref']
-                rgc['ancestor_b_ref'] = insert_gc['ref']
-                if target_gc['gca_ref'] is not None:
-                    rgc['gcb_ref'] = target_gc['gca_ref']
+        fgc_dict[igc['ref']] = igc
+        if above_row == 'I':
+            _insert_gc_case_0(tgc, igc, rgc)
+        elif not tgcg.has_a:
+            _insert_gc_case_1(igc, rgc)
+        elif not tgcg.has_f:
+            if not tgcg.has_b:
+                if above_row == 'A':
+                    _insert_gc_case_2(tgc, igc, rgc, fgc_dict)
                 else:
-                    rgc['gcb_ref'] = target_gc['ref']
-                    fgc_dict[target_gc['ref']] = target_gc
-            else:  # Case 3
-                if _LOG_DEBUG:
-                    _logger.debug("Case 3")
-                if target_gc['gca_ref'] is not None:
-                    rgc['gca_ref'] = target_gc['gca_ref']
+                    _insert_gc_case_3(tgc, igc, rgc, fgc_dict)
+            else:
+                if above_row == 'A':
+                    _insert_gc_case_4(tgc, igc, rgc, fgc, fgc_dict)
+                elif above_row == 'B':
+                    _insert_gc_case_5(tgc, igc, rgc, fgc, fgc_dict)
                 else:
-                    rgc['gca_ref'] = target_gc['ref']
-                    fgc_dict[target_gc['ref']] = target_gc
-                rgc['gcb_ref'] = insert_gc['ref']
-                rgc['ancestor_b_ref'] = insert_gc['ref']
-        else:  # Has row A & row B
-            if _above_row == 'A':  # Case 4
-                if _LOG_DEBUG:
-                    _logger.debug("Case 4")
-                fgc['gca_ref'] = insert_gc['ref']
-                fgc['gcb_ref'] = target_gc['gca_ref']
-                fgc['ancestor_a_ref'] = insert_gc['ref']
-                fgc['ancestor_b_ref'] = target_gc['ref'] if target_gc['ref'] in fgc_dict else target_gc['ancestor_a_ref']
-                rgc['gca_ref'] = fgc['ref']
-                rgc['gcb_ref'] = target_gc['gcb_ref']
-                rgc['ancestor_b_ref'] = fgc['ref']
-            elif _above_row == 'B':  # Case 5
-                if _LOG_DEBUG:
-                    _logger.debug("Case 5")
-                fgc['gca_ref'] = target_gc['gca_ref']
-                fgc['gcb_ref'] = insert_gc['ref']
-                fgc['ancestor_a_ref'] = insert_gc['ref']
-                fgc['ancestor_b_ref'] = target_gc['ref'] if target_gc['ref'] in fgc_dict else target_gc['ancestor_a_ref']
-                rgc['gca_ref'] = fgc['ref']
-                rgc['gcb_ref'] = target_gc['gcb_ref']
-                rgc['ancestor_b_ref'] = fgc['ref']
-            else:  # Case 6
-                if _LOG_DEBUG:
-                    _logger.debug("Case 6")
-                fgc['gca_ref'] = target_gc['gca_ref']
-                fgc['gcb_ref'] = target_gc['gcb_ref']
-                fgc['ancestor_a_ref'] = target_gc['ref']
-                rgc['gca_ref'] = fgc['ref']
-                rgc['gcb_ref'] = insert_gc['ref']
-                rgc['ancestor_a_ref'] = insert_gc['ref']
-                rgc['ancestor_b_ref'] = fgc['ref']
-                fgc_dict[target_gc['ref']] = target_gc
+                    _insert_gc_case_6(tgc, igc, rgc, fgc, fgc_dict)
+        else:
+            if above_row == 'A':
+                _insert_gc_case_7(tgc, igc, fgc, fgc_dict)
+            elif above_row == 'O':
+                _insert_gc_case_8(tgc, igc, fgc, fgc_dict)
+            elif above_row == 'B':
+                _insert_gc_case_9(tgc, igc, fgc, fgc_dict)
+            elif above_row == 'P':
+                _insert_gc_case_10(tgc, igc, fgc, fgc_dict)
+
 
         # rgc['ref'] must be new & replace any previous mentions
         # of target_gc['ref'] in fgc_dict[*][...ref fields...]
@@ -395,7 +537,7 @@ def stablize(gms: gene_pool, tgc: aGC, igc: None | aGC = None, above_row: None |
         # but will appear
         # TODO: There must be a more efficient way of doing this
         new_ref: int = rgc['ref']
-        old_ref: int = target_gc['ref']
+        old_ref: int = tgc['ref']
         if _LOG_DEBUG:
             _logger.debug(f"Replacing {ref_str(old_ref)} with {ref_str(new_ref)}.")
         for nfgc in fgc_dict.values():
@@ -411,30 +553,30 @@ def stablize(gms: gene_pool, tgc: aGC, igc: None | aGC = None, above_row: None |
         # FGC is added to the work stack ahead of RGC
         # which ensures the new TGC is correctly set
         # (i.e. does not end up being the RGC of an unstable FGC)
-        if fgc_graph:
-            if not fgc_steady:
+        if fgcg:
+            if not fgcg_steady:
                 if _LOG_DEBUG:
                     _logger.debug(f"FGC ref {ref_str(fgc['ref'])} is unstable.")
                 work_stack.insert(0, steady_state_exception(gms, fgc))
             else:
                 if _LOG_DEBUG:
-                    assert fgc_graph.validate(), "FGC validation failed."
+                    assert fgcg.validate(), "FGC validation failed."
                     _logger.debug(f"FGC ref {ref_str(fgc['ref'])} added to fgc_dict.")
                 fgc_dict[fgc['ref']] = fgc
 
-        if not rgc_steady:
+        if not rgcg_steady:
             if _LOG_DEBUG:
                 _logger.debug(f"RGC ref {ref_str(rgc['ref'])} is unstable.")
             work_stack.insert(0, steady_state_exception(gms, rgc))
         elif not new_tgc_flag:
             if _LOG_DEBUG:
-                assert rgc_graph.validate(), "RGC validation failed."
+                assert rgcg.validate(), "RGC validation failed."
                 _logger.debug(f"Resultant GC defined:\n{rgc}")
             new_tgc_flag = True
             new_tgc = rgc
         else:
             if _LOG_DEBUG:
-                assert rgc_graph.validate(), "RGC validation failed."
+                assert rgcg.validate(), "RGC validation failed."
                 _logger.debug(f"RGC ref {ref_str(rgc['ref'])} added to fgc_dict.")
             fgc_dict[rgc['ref']] = rgc
 
@@ -448,7 +590,7 @@ def stablize(gms: gene_pool, tgc: aGC, igc: None | aGC = None, above_row: None |
     return (new_tgc, fgc_dict)
 
 
-def gc_insert(gms: gene_pool, tgc: aGC, igc: None | aGC = None, above_row: None | Literal['I', 'A', 'B', 'O'] = None) -> xGC:
+def gc_insert(gms: gene_pool, tgc: aGC, igc: aGC, above_row: Literal['I', 'A', 'B', 'O']) -> xGC:
     """Insert insert_gc into target_gc above row 'above_row'.
 
     If insert_gc is None then the target_gc is assessed for stability. If it
@@ -463,13 +605,13 @@ def gc_insert(gms: gene_pool, tgc: aGC, igc: None | aGC = None, above_row: None 
     gms: A source of genetic material & references. Needs to be in the context of the sub-process.
     tgc: GC to insert insert_gc into.
     igc: GC to insert into target_gc.
-    above_row: One of 'A', 'B' or 'O'.
+    above_row: One of 'I', 'A', 'B' or 'O'.
 
     Returns
     -------
     The GC created as a result of the insertion.
     """
-    new_gc_definition: NewGCDef = stablize(gms, tgc, igc, above_row)
+    new_gc_definition: NewGCDef = _gc_insert(gms, tgc, igc, above_row)
     gms.pool[new_gc_definition[0]['ref']] = new_gc_definition[0]
     gms.pool.update(new_gc_definition[1])
     return gms.pool[new_gc_definition[0]['ref']]
@@ -491,13 +633,13 @@ def gc_stack(gms: gene_pool, bottom_gc: aGC, top_gc: aGC) -> xGC:
     -------
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
-    new_gc_definition: NewGCDef = stablize(gms, bottom_gc, top_gc, 'I')
+    new_gc_definition: NewGCDef = _gc_insert(gms, bottom_gc, top_gc, 'I')
     gms.pool[new_gc_definition[0]['ref']] = new_gc_definition[0]
     gms.pool.update(new_gc_definition[1])
     return gms.pool[new_gc_definition[0]['ref']]
 
 
-def _clone(gc_to_clone: aGC, ref: Callable[[], int]) -> dGC:
+def _clone(gc_to_clone: aGC, ref: Callable[[], int], copy_graph: bool = True) -> dGC:
     """Create a minimal close of gc.
 
     Args
@@ -516,11 +658,11 @@ def _clone(gc_to_clone: aGC, ref: Callable[[], int]) -> dGC:
         'gca_ref': gc_to_clone['gca_ref'] if gc_to_clone['gca_ref'] is not None else gc_to_clone['ref'],
         'gcb_ref': gc_to_clone['gcb_ref'],
         # More efficient than reconstructing
-        'igraph': deepcopy(gc_to_clone['igraph'])
+        'gc_graph': deepcopy(gc_to_clone['gc_graph']) if copy_graph else gc_graph()
     }
 
 
-def gc_remove(gms, tgc, abpo=None):
+def gc_remove(gms: gene_pool, tgc: aGC, abpo: Literal['A', 'B', 'P', 'O']):
     """Remove row A, B, P or O from tgc['graph'] to create rgc.
 
     If the row removed is A or B then GCA or GCB is set to None.
@@ -536,35 +678,30 @@ def gc_remove(gms, tgc, abpo=None):
 
     Args
     ----
-    gms (gene_pool or genomic_library): A source of genetic material.
-    tgc (xgc): Target xGC to modify.
-    abpo (str): Either 'A', 'B', 'P' or 'O'. If None a row is removed at random.
+    gms: A source of genetic material.
+    tgc: Target xGC to modify.
+    abpo: Either 'A', 'B', 'P' or 'O'. If None a row is removed at random.
 
     Returns
     -------
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
     # FIXME: Can you move row 'O"?
-    rgc = None
-    if tgc is not None:
-        rgc = eGC(_clone(tgc))
-        if _LOG_DEBUG:
-            _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(rgc['ref'])}")
-        if abpo is None:
-            abpo = choice('ABP')
-            if _LOG_DEBUG:
-                _logger.debug(f'Removing row {abpo}.')
-        rgc_graph = rgc['igraph']
-        rgc_graph.remove_rows(abpo)
-        if abpo == 'A':
-            rgc['gca_ref'] = tgc['gcb_ref']
-            rgc['gcb_ref'] = None
-        elif abpo == 'B':
-            rgc['gca_ref'] = tgc['gca_ref']
-            rgc['gcb_ref'] = None
-        elif abpo == 'P':
-            rgc_graph.remove_rows('FP')
-        rgc_graph.normalize()
+    rgc: dGC = _clone(tgc, gms.next_reference, False)
+    if _LOG_DEBUG:
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(rgc['ref'])}")
+        _logger.debug(f'Removing row {abpo}.')
+    rgc_igraph: internal_graph = internal_graph()
+    rgc_igraph.update(tgc['gc_graph'].i_graph.copy_rows(('I', 'C')))
+    if abpo == 'A':
+        rgc['gca_ref'] = tgc['gcb_ref']
+        rgc['gcb_ref'] = None
+    elif abpo == 'B':
+        rgc['gca_ref'] = tgc['gca_ref']
+        rgc['gcb_ref'] = None
+    elif abpo == 'P':
+        rgc_graph.remove_rows('FP')
+    rgc_graph.normalize()
     return _pgc_epilogue(gms, rgc)
 
 
@@ -590,7 +727,7 @@ def _pgc_epilogue(gms, xgc):
     if _LOG_DEBUG:
         _logger.debug(f'PGC epilogue with xgc = {xgc}')
     if xgc is not None:
-        rgc, fgcs = stablize(gms, xgc)
+        rgc, fgcs = _gc_insert(gms, xgc)
         if rgc is not None:
             # TODO: Yuk - need to de-mush physics & GP. gGC is a GP concept not a GMS one
             # 7-May-2022: Hmmm! But GP is a GMS and should fallback to GL when looking for a GC
@@ -624,8 +761,8 @@ def gc_remove_all_connections(gms, tgc):
         egc = eGC(_clone(tgc))
         if _LOG_DEBUG:
             _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
-        egc['igraph'].remove_all_connections()
-        egc['igraph'].normalize()
+        egc['gc_graph'].remove_all_connections()
+        egc['gc_graph'].normalize()
     return _pgc_epilogue(gms, egc)
 
 
@@ -653,8 +790,8 @@ def gc_add_input(gms, tgc):
         egc = eGC(_clone(tgc))
         if _LOG_DEBUG:
             _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
-        egc['igraph'].add_input()
-        egc['igraph'].normalize()
+        egc['gc_graph'].add_input()
+        egc['gc_graph'].normalize()
     return _pgc_epilogue(gms, egc)
 
 
@@ -682,8 +819,8 @@ def gc_remove_input(gms, tgc):
         egc = eGC(_clone(tgc))
         if _LOG_DEBUG:
             _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
-        egc['igraph'].remove_input()
-        egc['igraph'].normalize()
+        egc['gc_graph'].remove_input()
+        egc['gc_graph'].normalize()
     return _pgc_epilogue(gms, egc)
 
 
@@ -711,8 +848,8 @@ def gc_add_output(gms, tgc):
         egc = eGC(_clone(tgc))
         if _LOG_DEBUG:
             _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
-        egc['igraph'].add_output()
-        egc['igraph'].normalize()
+        egc['gc_graph'].add_output()
+        egc['gc_graph'].normalize()
     return _pgc_epilogue(gms, egc)
 
 
@@ -740,8 +877,8 @@ def gc_remove_output(gms, tgc):
         egc = eGC(_clone(tgc))
         if _LOG_DEBUG:
             _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
-        egc['igraph'].add_output()
-        egc['igraph'].normalize()
+        egc['gc_graph'].add_output()
+        egc['gc_graph'].normalize()
     return _pgc_epilogue(gms, egc)
 
 
@@ -769,8 +906,8 @@ def gc_remove_constant(gms, tgc):
         egc = eGC(_clone(tgc))
         if _LOG_DEBUG:
             _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
-        egc['igraph'].remove_constant()
-        egc['igraph'].normalize()
+        egc['gc_graph'].remove_constant()
+        egc['gc_graph'].normalize()
     return _pgc_epilogue(gms, egc)
 
 
@@ -859,7 +996,7 @@ def steady_state_exception(gms, fgc):
     """
     if _LOG_DEBUG:
         _logger.debug(f"Steady state exception thrown for GC ref {ref_str(fgc['ref'])}.")
-    fgc_graph = fgc['igraph']
+    fgc_graph = fgc['gc_graph']
 
     # Find unconnected destination endpoints. Determine highest row & endpoint types.
     dst_list = list(filter(fgc_graph.unreferenced_filter(fgc_graph.dst_filter()), fgc_graph.graph.values()))
