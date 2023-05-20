@@ -321,7 +321,7 @@ def _gc_insert(gms: gene_pool, tgc: aGC, igc: aGC, above_row: InsertRow) -> NewG
         'graph': rgcg.app_graph,
         'gc_graph': rgcg,
         'ancestor_a_ref': tgc['ref'],
-        'ancestor_b_ref': None,
+        'ancestor_b_ref': igc['ref'],
         'ref': gms.next_reference(),
         'gca_ref': tgc['gca_ref'],
         'gcb_ref': tgc['gcb_ref']
@@ -331,8 +331,6 @@ def _gc_insert(gms: gene_pool, tgc: aGC, igc: aGC, above_row: InsertRow) -> NewG
     # throw a steady state exception.
     if _LOG_DEBUG:
         _logger.debug('Inserting into Target GC.')
-    igc.setdefault('ancestor_a_ref', None)
-    igc.setdefault('ancestor_b_ref', None)
     return _recursive_insert(gms, [(rgc, igc, above_row)])
 
 
@@ -341,98 +339,95 @@ def _insert_gc_case_0(tgc: aGC, igc: aGC, rgc: aGC) -> None:
     _logger.debug("Case 0: Stack")
     rgc['gca_ref'] = igc['ref']
     rgc['gcb_ref'] = tgc['ref']
-    rgc['ancestor_a_ref'] = igc['ref']
-    rgc['ancestor_b_ref'] = tgc['ref']
 
 
 def _insert_gc_case_1(igc: aGC, rgc: aGC) -> None:
     """Insert igc data into tgc case 1."""
     _logger.debug("Case 1")
     rgc['gca_ref'] = igc['ref']
-    rgc['ancestor_b_ref'] = igc['ref']
 
 
-def _insert_gc_case_2(tgc: aGC, igc: aGC, rgc: aGC, fgc_dict: dict[int, aGC]) -> None:
+def _insert_gc_case_2(tgc: aGC, igc: aGC, rgc: aGC) -> None:
     """Insert igc data into tgc case 2."""
     _logger.debug("Case 2")
     rgc['gca_ref'] = igc['ref']
-    rgc['ancestor_b_ref'] = igc['ref']
     if tgc['gca_ref'] is not None:
         rgc['gcb_ref'] = tgc['gca_ref']
     else:
         rgc['gcb_ref'] = tgc['ref']
-        fgc_dict[tgc['ref']] = tgc
 
 
-def _insert_gc_case_3(tgc: aGC, igc: aGC, rgc: aGC, fgc_dict: dict[int, aGC]) -> None:
+def _insert_gc_case_3(tgc: aGC, igc: aGC, rgc: aGC) -> None:
     """Insert igc data into tgc case 3."""
     _logger.debug("Case 3")
     if tgc['gca_ref'] is not None:
         rgc['gca_ref'] = tgc['gca_ref']
     else:
         rgc['gca_ref'] = tgc['ref']
-        fgc_dict[tgc['ref']] = tgc
     rgc['gcb_ref'] = igc['ref']
-    rgc['ancestor_b_ref'] = igc['ref']
 
 
-def _insert_gc_case_4(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC, fgc_dict: dict[int, aGC]) -> None:
+def _insert_gc_case_4(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> None:
     """Insert igc data into tgc case 4."""
     _logger.debug("Case 4")
     fgc['gca_ref'] = igc['ref']
     fgc['gcb_ref'] = tgc['gca_ref']
-    fgc['ancestor_a_ref'] = igc['ref']
-    fgc['ancestor_b_ref'] = tgc['ref'] if tgc['ref'] in fgc_dict else tgc['ancestor_a_ref']
     rgc['gca_ref'] = fgc['ref']
     rgc['gcb_ref'] = tgc['gcb_ref']
-    rgc['ancestor_b_ref'] = fgc['ref']
 
 
-def _insert_gc_case_5(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC, fgc_dict: dict[int, aGC]) -> None:
+def _insert_gc_case_5(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> None:
     """Insert igc data into tgc case 5."""
     _logger.debug("Case 5")
     fgc['gca_ref'] = tgc['gca_ref']
     fgc['gcb_ref'] = igc['ref']
-    fgc['ancestor_a_ref'] = igc['ref']
-    fgc['ancestor_b_ref'] = tgc['ref'] if tgc['ref'] in fgc_dict else tgc['ancestor_a_ref']
     rgc['gca_ref'] = fgc['ref']
     rgc['gcb_ref'] = tgc['gcb_ref']
-    rgc['ancestor_b_ref'] = fgc['ref']
 
 
-def _insert_gc_case_6(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC, fgc_dict: dict[int, aGC]) -> None:
+def _insert_gc_case_6(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> None:
     """Insert igc data into tgc case 6."""
     _logger.debug("Case 6")
     fgc['gca_ref'] = tgc['gca_ref']
     fgc['gcb_ref'] = tgc['gcb_ref']
-    fgc['ancestor_a_ref'] = tgc['ref']
     rgc['gca_ref'] = fgc['ref']
     rgc['gcb_ref'] = igc['ref']
-    rgc['ancestor_a_ref'] = igc['ref']
-    rgc['ancestor_b_ref'] = fgc['ref']
-    fgc_dict[tgc['ref']] = tgc
 
 
-def _insert_gc_case_7(tgc: aGC, igc: aGC, fgc: aGC, fgc_dict: dict[int, aGC]) -> None:
+def _insert_gc_case_7(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> None:
     """Insert igc data into tgc case 7."""
     _logger.debug("Case 7")
+    rgc['gca_ref'] = fgc['ref']
+    rgc['gcb_ref'] = tgc['gcb_ref']
+    fgc['gca_ref'] = igc['ref']
+    fgc['gcb_ref'] = tgc['gca_ref']
 
 
-def _insert_gc_case_8(tgc: aGC, igc: aGC, fgc: aGC, fgc_dict: dict[int, aGC]) -> None:
+def _insert_gc_case_8(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> None:
     """Insert igc data into tgc case 8."""
     _logger.debug("Case 8")
+    rgc['gca_ref'] = fgc['ref']
+    rgc['gcb_ref'] = tgc['gcb_ref']
+    fgc['gca_ref'] = tgc['gca_ref']
+    fgc['gcb_ref'] = igc['ref']
 
 
-def _insert_gc_case_9(tgc: aGC, igc: aGC, fgc: aGC, fgc_dict: dict[int, aGC]) -> None:
+def _insert_gc_case_9(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> None:
     """Insert igc data into tgc case 9."""
     _logger.debug("Case 9")
+    rgc['gca_ref'] = tgc['gca_ref']
+    rgc['gcb_ref'] = fgc['ref']
+    fgc['gca_ref'] = igc['ref']
+    fgc['gcb_ref'] = tgc['gcb_ref']
 
 
-def _insert_gc_case_10(tgc: aGC, igc: aGC, fgc: aGC, fgc_dict: dict[int, aGC]) -> None:
+def _insert_gc_case_10(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> None:
     """Insert igc data into tgc case 10."""
     _logger.debug("Case 10")
-
-
+    rgc['gca_ref'] = tgc['gca_ref']
+    rgc['gcb_ref'] = fgc['ref']
+    fgc['gca_ref'] = tgc['gcb_ref']
+    fgc['gcb_ref'] = igc['ref']
 
 
 def _recursive_insert(gms: gene_pool, work_stack: WorkStack) -> NewGCDef:
@@ -452,7 +447,7 @@ def _recursive_insert(gms: gene_pool, work_stack: WorkStack) -> NewGCDef:
         added to the top of the work stack. Steady state GC's are added to the
         return value, fgc to the back and tgc to the front, thus when the function
         returns the correct tgc will be at the head of the fgc_list.
-    
+
         Args
         ----
         work_stack: List of (Target GC, Insert GC, above row) worl to do
@@ -493,14 +488,19 @@ def _recursive_insert(gms: gene_pool, work_stack: WorkStack) -> NewGCDef:
                 _logger.debug(f"Normalized fgc:\n{pformat(fgcg)}")
             fgc['graph'] = fgcg.app_graph
             fgc['gc_graph'] = fgcg
+            fgc['ancestor_a_ref'] = igc['ref']
+            fgc['ancestor_b_ref'] = tgc['ref']
         if _LOG_DEBUG:
             _logger.debug(f"Normalized rgc:\n{pformat(rgcg)}")
         rgc['graph'] = rgcg.app_graph
         rgc['gc_graph'] = rgcg
+        rgc['ancestor_a_ref'] = tgc['ref']
+        rgc['ancestor_b_ref'] = igc['ref']
 
         # Insert into the GC
         # The insert_gc is always referenced in the tree of the final rgc
         fgc_dict[igc['ref']] = igc
+        fgc_dict[tgc['ref']] = tgc
         if above_row == 'I':
             _insert_gc_case_0(tgc, igc, rgc)
         elif not tgcg.has_a:
@@ -508,26 +508,26 @@ def _recursive_insert(gms: gene_pool, work_stack: WorkStack) -> NewGCDef:
         elif not tgcg.has_f:
             if not tgcg.has_b:
                 if above_row == 'A':
-                    _insert_gc_case_2(tgc, igc, rgc, fgc_dict)
+                    _insert_gc_case_2(tgc, igc, rgc)
                 else:
-                    _insert_gc_case_3(tgc, igc, rgc, fgc_dict)
+                    _insert_gc_case_3(tgc, igc, rgc)
             else:
                 if above_row == 'A':
-                    _insert_gc_case_4(tgc, igc, rgc, fgc, fgc_dict)
+                    _insert_gc_case_4(tgc, igc, rgc, fgc)
                 elif above_row == 'B':
-                    _insert_gc_case_5(tgc, igc, rgc, fgc, fgc_dict)
+                    _insert_gc_case_5(tgc, igc, rgc, fgc)
                 else:
-                    _insert_gc_case_6(tgc, igc, rgc, fgc, fgc_dict)
+                    _insert_gc_case_6(tgc, igc, rgc, fgc)
         else:
-            if above_row == 'A':
-                _insert_gc_case_7(tgc, igc, fgc, fgc_dict)
-            elif above_row == 'O':
-                _insert_gc_case_8(tgc, igc, fgc, fgc_dict)
-            elif above_row == 'B':
-                _insert_gc_case_9(tgc, igc, fgc, fgc_dict)
-            elif above_row == 'P':
-                _insert_gc_case_10(tgc, igc, fgc, fgc_dict)
 
+            if above_row == 'A':
+                _insert_gc_case_7(tgc, igc, rgc, fgc)
+            elif above_row == 'O':
+                _insert_gc_case_8(tgc, igc, rgc, fgc)
+            elif above_row == 'B':
+                _insert_gc_case_9(tgc, igc, rgc, fgc)
+            elif above_row == 'P':
+                _insert_gc_case_10(tgc, igc, rgc, fgc)
 
         # rgc['ref'] must be new & replace any previous mentions
         # of target_gc['ref'] in fgc_dict[*][...ref fields...]
@@ -536,6 +536,8 @@ def _recursive_insert(gms: gene_pool, work_stack: WorkStack) -> NewGCDef:
         # In the case where target_gc is unstable it is not in fgc_dict
         # but will appear
         # TODO: There must be a more efficient way of doing this
+        # FIXME: I think this breaks if tgc == igc
+        # IDEA: Could we use a data class for references?
         new_ref: int = rgc['ref']
         old_ref: int = tgc['ref']
         if _LOG_DEBUG:
