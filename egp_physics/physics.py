@@ -18,6 +18,7 @@ from egp_types.internal_graph import internal_graph
 from egp_types.reference import ref_str
 from egp_types.aGC import aGC
 from egp_types.dGC import dGC
+from egp_types.egp_typing import Row
 
 from numpy import array, float32, isfinite
 from numpy.random import choice as weighted_choice
@@ -283,6 +284,7 @@ def _insert_graph(tgcg: gc_graph, igcg: gc_graph, above_row: InsertRow) -> tuple
         _logger.debug(f"Pre-completed rig ({type(rig)}):\n{pformat(rig)}")
         _logger.debug(f"Pre-completed fig ({type(fig)}):\n{pformat(fig)}")
 
+    # Tidy up dangling references and normalize (make new connections)
     rig.complete_references()
     rgc_gc_graph = gc_graph(i_graph=rig)
     rgc_gc_graph.normalize()
@@ -302,7 +304,7 @@ def _insert_graph(tgcg: gc_graph, igcg: gc_graph, above_row: InsertRow) -> tuple
 
 
 def stabilize(gms: gene_pool, tgc: aGC) -> NewGCDef:
-    """If tgc is not stable inse"""
+    """If tgc is not stable force a steady state exceptiion"""
     if tgc['gc_graph'].is_stable():
         if _LOG_DEBUG:
             assert tgc['gc_graph'].validate()
@@ -310,10 +312,10 @@ def stabilize(gms: gene_pool, tgc: aGC) -> NewGCDef:
         return (tgc, {})
     if _LOG_DEBUG:
         _logger.debug('Target GC is unstable.')
-    return _recursive_insert(gms, [steady_state_exception(gms, rgc)])
+    return _recursive_insert_gc(gms, [steady_state_exception(gms, tgc)])
 
 
-def _gc_insert(gms: gene_pool, tgc: aGC, igc: aGC, above_row: InsertRow) -> NewGCDef:
+def _insert_gc(gms: gene_pool, tgc: aGC, igc: aGC, above_row: InsertRow) -> NewGCDef:
     """Insert igc into tgc above row 'above_row'.
 
     Args
@@ -328,22 +330,9 @@ def _gc_insert(gms: gene_pool, tgc: aGC, igc: aGC, above_row: InsertRow) -> NewG
     (rgc, {ref: fgc}): First fgc is the igc followed by fgc's
     created to stabilise rgc.
     """
-    rgcg: gc_graph = deepcopy(tgc['gc_graph'])
-    rgc: dGC = {
-        'graph': rgcg.app_graph,
-        'gc_graph': rgcg,
-        'ancestor_a_ref': tgc['ref'],
-        'ancestor_b_ref': igc['ref'],
-        'ref': gms.next_reference(),
-        'gca_ref': tgc['gca_ref'],
-        'gcb_ref': tgc['gcb_ref']
-    }
-
-    # If there is no gc_insert return the target if it is stable or
-    # throw a steady state exception.
     if _LOG_DEBUG:
         _logger.debug('Inserting into Target GC.')
-    return _recursive_insert(gms, [(rgc, igc, above_row)])
+    return _recursive_insert_gc(gms, [(tgc, igc, above_row)])
 
 
 def _insert_gc_case_0(tgc: aGC, igc: aGC, rgc: aGC) -> None:
@@ -442,7 +431,14 @@ def _insert_gc_case_10(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> None:
     fgc['gcb_ref'] = igc['ref']
 
 
-def _recursive_insert(gms: gene_pool, work_stack: WorkStack) -> NewGCDef:
+def _insert_gc_case_11(tgc: aGC, igc: aGC, rgc: aGC) -> None:
+    """Insert igc data into tgc case 11."""
+    _logger.debug("Case 11: Inverse Stack")
+    rgc['gca_ref'] = tgc['ref']
+    rgc['gcb_ref'] = igc['ref']
+
+
+def _recursive_insert_gc(gms: gene_pool, work_stack: WorkStack) -> NewGCDef:
     """Recursively insert GC's until the target GC is stable.
 
     A work stack is used to avoid actual recursion.
@@ -515,6 +511,8 @@ def _recursive_insert(gms: gene_pool, work_stack: WorkStack) -> NewGCDef:
         fgc_dict[tgc['ref']] = tgc
         if above_row == 'I':
             _insert_gc_case_0(tgc, igc, rgc)
+        elif above_row == 'Z':
+            _insert_gc_case_11(tgc, igc, rgc)
         elif not tgcg.has_a:
             _insert_gc_case_1(igc, rgc)
         elif not tgcg.has_f:
@@ -617,15 +615,15 @@ def gc_insert(gms: gene_pool, tgc: aGC, igc: aGC, above_row: Literal['I', 'A', '
     Args
     ----
     gms: A source of genetic material & references. Needs to be in the context of the sub-process.
-    tgc: GC to insert insert_gc into.
-    igc: GC to insert into target_gc.
+    tgc: The target GC.
+    igc: GC to insert into tgc.
     above_row: One of 'I', 'A', 'B' or 'O'.
 
     Returns
     -------
     The GC created as a result of the insertion.
     """
-    new_gc_definition: NewGCDef = _gc_insert(gms, tgc, igc, above_row)
+    new_gc_definition: NewGCDef = _insert_gc(gms, tgc, igc, above_row)
     gms.pool[new_gc_definition[0]['ref']] = new_gc_definition[0]
     gms.pool.update(new_gc_definition[1])
     return gms.pool[new_gc_definition[0]['ref']]
@@ -647,7 +645,7 @@ def gc_stack(gms: gene_pool, bottom_gc: aGC, top_gc: aGC) -> xGC:
     -------
     rgc (mGC): Resultant minimal GC with a valid graph or None
     """
-    new_gc_definition: NewGCDef = _gc_insert(gms, bottom_gc, top_gc, 'I')
+    new_gc_definition: NewGCDef = _insert_gc(gms, bottom_gc, top_gc, 'I')
     gms.pool[new_gc_definition[0]['ref']] = new_gc_definition[0]
     gms.pool.update(new_gc_definition[1])
     return gms.pool[new_gc_definition[0]['ref']]
@@ -676,25 +674,18 @@ def _clone(gc_to_clone: aGC, ref: Callable[[], int], copy_graph: bool = True) ->
     }
 
 
-def gc_remove(gms: gene_pool, tgc: aGC, abpo: Literal['A', 'B', 'P', 'O']):
-    """Remove row A, B, P or O from tgc['graph'] to create rgc.
+def gc_remove(gms: gene_pool, tgc: aGC, row: Row):
+    """Remove row A, B, C, P or O from tgc['graph'] to create rgc.
 
-    If the row removed is A or B then GCA or GCB is set to None.
-    If the row is P then both rows F and P are removed.
-    If the row is O then both rows F and O are removed, P is copied to O
-    and P is removed.
     The subsequent invalid graph is normalised and used to create rgc.
     Removing a row is likely to result in an invalid graph which is
     repaired using recursive steady state exceptions.
-
-    NOTE: If a steady state exception occurs for which a candidate cannot
-    be found in the GMS this function returns None.
 
     Args
     ----
     gms: A source of genetic material.
     tgc: Target xGC to modify.
-    abpo: Either 'A', 'B', 'P' or 'O'. If None a row is removed at random.
+    abcpo: Either 'A', 'B', 'C', 'P' or 'O'. If None a row is removed at random.
 
     Returns
     -------
@@ -704,16 +695,16 @@ def gc_remove(gms: gene_pool, tgc: aGC, abpo: Literal['A', 'B', 'P', 'O']):
     rgc: dGC = _clone(tgc, gms.next_reference, False)
     if _LOG_DEBUG:
         _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(rgc['ref'])}")
-        _logger.debug(f'Removing row {abpo}.')
+        _logger.debug(f'Removing row {row}.')
     rgc_igraph: internal_graph = internal_graph()
     rgc_igraph.update(tgc['gc_graph'].i_graph.copy_rows(('I', 'C')))
-    if abpo == 'A':
+    if row == 'A':
         rgc['gca_ref'] = tgc['gcb_ref']
         rgc['gcb_ref'] = None
-    elif abpo == 'B':
+    elif row == 'B':
         rgc['gca_ref'] = tgc['gca_ref']
         rgc['gcb_ref'] = None
-    elif abpo == 'P':
+    elif row == 'P':
         rgc_graph.remove_rows('FP')
     rgc_graph.normalize()
     return _pgc_epilogue(gms, rgc)
@@ -741,7 +732,7 @@ def _pgc_epilogue(gms, xgc):
     if _LOG_DEBUG:
         _logger.debug(f'PGC epilogue with xgc = {xgc}')
     if xgc is not None:
-        rgc, fgcs = _gc_insert(gms, xgc)
+        rgc, fgcs = _insert_gc(gms, xgc)
         if rgc is not None:
             # TODO: Yuk - need to de-mush physics & GP. gGC is a GP concept not a GMS one
             # 7-May-2022: Hmmm! But GP is a GMS and should fallback to GL when looking for a GC
