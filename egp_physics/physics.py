@@ -629,7 +629,7 @@ def gc_insert(gms: gene_pool, tgc: aGC, igc: aGC, above_row: Literal['I', 'A', '
     return gms.pool[new_gc_definition[0]['ref']]
 
 
-def gc_stack(gms: gene_pool, bottom_gc: aGC, top_gc: aGC) -> xGC:
+def gc_stack(gms: gene_pool, bottom_gc: aGC, top_gc: aGC, invert=False) -> xGC:
     """Stack two GC's.
 
     top_gc is stacked on top of bottom_gc to create a new gc.
@@ -640,12 +640,13 @@ def gc_stack(gms: gene_pool, bottom_gc: aGC, top_gc: aGC) -> xGC:
     gms: A source of genetic material.
     top_gc: GC to stack on top
     bottom_gc: GC to put on the bottom.
+    invert: If True the top_gc is stacked below the bottom_gc.
 
     Returns
     -------
-    rgc (mGC): Resultant minimal GC with a valid graph or None
+    rgc: Resultant GC with a valid graph
     """
-    new_gc_definition: NewGCDef = _insert_gc(gms, bottom_gc, top_gc, 'I')
+    new_gc_definition: NewGCDef = _insert_gc(gms, bottom_gc, top_gc, ('I', 'Z')[invert])
     gms.pool[new_gc_definition[0]['ref']] = new_gc_definition[0]
     gms.pool.update(new_gc_definition[1])
     return gms.pool[new_gc_definition[0]['ref']]
@@ -665,7 +666,7 @@ def _clone(gc_to_clone: aGC, ref: Callable[[], int], copy_graph: bool = True) ->
     return {
         'ref': ref(),
         'ancestor_a_ref': gc_to_clone['ref'],
-        'ancestor_b_ref': None,
+        'ancestor_b_ref': 0,
         # If gc is a codon then it does not have a GCA
         'gca_ref': gc_to_clone['gca_ref'] if gc_to_clone['gca_ref'] is not None else gc_to_clone['ref'],
         'gcb_ref': gc_to_clone['gcb_ref'],
