@@ -462,7 +462,7 @@ def _recursive_insert_gc(gms: gene_pool, work_stack: WorkStack) -> NewGCDef:
 
         Returns
         -------
-        A new GC definition structure. 
+        A new GC definition structure.
     """
     fgc_dict: dict[int, aGC] = {}
     new_tgc_flag: bool = False
@@ -706,8 +706,8 @@ def gc_remove(gms: gene_pool, tgc: aGC, row: Row):
         rgc['gca_ref'] = tgc['gca_ref']
         rgc['gcb_ref'] = None
     elif row == 'P':
-        rgc_graph.remove_rows('FP')
-    rgc_graph.normalize()
+        rgc_igraph.remove_rows('FP')
+    rgc_igraph.normalize()
     return _pgc_epilogue(gms, rgc)
 
 

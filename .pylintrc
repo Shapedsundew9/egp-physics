@@ -172,7 +172,7 @@ function-naming-style=snake_case
 # Regular expression matching correct function names. Overrides function-
 # naming-style. If left empty, function names will be checked with the set
 # naming style.
-function-rgx=(([a-z_][a-z0-9_]{2,48})|((is|cast)[a-zA-Z0-9]{2,48}))$
+#function-rgx=
 
 # Good variable names which should always be accepted, separated by a comma.
 good-names=i,
@@ -183,7 +183,7 @@ good-names=i,
 
 # Good variable names regexes, separated by a comma. If names match any regex,
 # they will always be accepted
-good-names-rgxs=(ep)$
+good-names-rgxs=
 
 # Include a hint for the correct naming format with invalid-name.
 include-naming-hint=no
@@ -208,7 +208,7 @@ module-naming-style=snake_case
 
 # Regular expression matching correct module names. Overrides module-naming-
 # style. If left empty, module names will be checked with the set naming style.
-module-rgx=(([a-z_][a-z0-9_]{2,30})|[a-z]GC)
+#module-rgx=
 
 # Colon-delimited sets of names that determine each other's naming style when
 # the name regexes allow several styles.
@@ -415,8 +415,7 @@ disable=raw-checker-failed,
         useless-suppression,
         deprecated-pragma,
         use-symbolic-message-instead,
-        logging-fstring-interpolation,   # Due to Gtk dependency
-        wrong-import-position,
+        logging-fstring-interpolation,
         fixme
 
 # Enable the message, report, category or checker with the given id(s). You can
