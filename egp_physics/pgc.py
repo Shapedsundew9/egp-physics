@@ -8,6 +8,7 @@ from typing import Union
 from egp_execution.execution import create_callable
 from egp_stores.gene_pool_cache import gene_pool_cache
 from egp_types.eGC import eGC
+from egp_types.xGC import gGC, pGC, xGC
 from egp_types.ep_type import interface_definition, vtype
 from egp_types.gc_graph import gc_graph
 from egp_types.gc_type_tools import M_MASK, NUM_PGC_LAYERS, is_pgc
@@ -123,7 +124,7 @@ def create_SMS(gp, pgc, ggc):
 
 
 # TODO: use pGC_fitness to call create_SMS when delta_fitness is positive
-def pGC_fitness(gp: gene_pool_cache, pgc: _gGC, ggc: _gGC, delta_fitness: Union[float, None]) -> int:
+def pGC_fitness(gp: gene_pool_cache, pgc: gGC, ggc: gGC, delta_fitness: Union[float, None]) -> int:
     """Update the fitness of the pGC and the pGC's that created it.
 
     pgc is modified.
@@ -160,7 +161,7 @@ def pGC_fitness(gp: gene_pool_cache, pgc: _gGC, ggc: _gGC, delta_fitness: Union[
     return evolutions
 
 
-def _pGC_fitness(pgc: _gGC, xgc: _gGC, delta_fitness: Union[float, None], depth: int) -> float:
+def _pGC_fitness(pgc: gGC, xgc: gGC, delta_fitness: Union[float, None], depth: int) -> float:
     """Update the fitness of the pGC.
 
     pgc is modified.
@@ -250,7 +251,8 @@ def evolve_physical(gp, pgc, depth):
         if offspring is not None:
             if _LOG_DEBUG:
                 assert isinstance(offspring, _gGC)
-            pGC_inherit(offspring, pgc, ppgc)
+            offspring['pgc_ref'] = ppgc['ref']
+            pGC_inherit(offspring, gp[offspring['ancestor_a_ref']], gp[offspring['ancestor_b_ref']], ppgc)
         return True
     return False
 
@@ -367,7 +369,7 @@ def select_pGC(gp: gene_pool_cache, xgc_refs: Iterable[int], depth: int = 0) -> 
     return matched_pgcs
 
 
-def pGC_inherit(child, parent, pgc):
+def pGC_inherit(descendant: pGC, ancestor_a: xGC, ancestor_b: xGC, pgc: pGC):
     """Inherit PGC only properties from parent to child.
 
     child is modified.
@@ -384,20 +386,20 @@ def pGC_inherit(child, parent, pgc):
     pgc (pGC): pGC that operated on parent to product child.
     """
     # TODO: A better data structure would be quicker
-    child['pgc_fitness'] = [f * _PGC_PARENTAL_PROTECTION_FACTOR for f in parent['pgc_fitness']]
-    child['pgc_f_count'] = [2] * NUM_PGC_LAYERS
-    child['pgc_evolvability'] = [f * _PGC_PARENTAL_PROTECTION_FACTOR for f in parent['pgc_evolvability']]
-    child['pgc_e_count'] = [2] * NUM_PGC_LAYERS
+    descendant['pgc_fitness'] = [f * _PGC_PARENTAL_PROTECTION_FACTOR for f in ancestor_a['pgc_fitness']]
+    descendant['pgc_f_count'] = [2] * NUM_PGC_LAYERS
+    descendant['pgc_evolvability'] = [f * _PGC_PARENTAL_PROTECTION_FACTOR for f in ancestor_a['pgc_evolvability']]
+    descendant['pgc_e_count'] = [2] * NUM_PGC_LAYERS
 
-    child['_pgc_fitness'] = [0.0] * NUM_PGC_LAYERS
-    child['_pgc_f_count'] = [0] * NUM_PGC_LAYERS
-    child['_pgc_evolvability'] = [0.0] * NUM_PGC_LAYERS
-    child['_pgc_e_count'] = [0] * NUM_PGC_LAYERS
+    descendant['_pgc_fitness'] = [0.0] * NUM_PGC_LAYERS
+    descendant['_pgc_f_count'] = [0] * NUM_PGC_LAYERS
+    descendant['_pgc_evolvability'] = [0.0] * NUM_PGC_LAYERS
+    descendant['_pgc_e_count'] = [0] * NUM_PGC_LAYERS
 
-    xGC_inherit(child, parent, pgc)
+    xGC_inherit(descendant, ancestor_a, ancestor_b, pgc)
 
 
-def population_GC_inherit(child, parent, pgc):
+def population_GC_inherit(descedant: gGC, ancestor_a: xGC, ancestor_b: xGC, pgc: pGC):
     """Inherit population properties from parent to child.
 
     child is modified.
@@ -414,25 +416,25 @@ def population_GC_inherit(child, parent, pgc):
     pgc (pGC): pGC that operated on parent to product child.
     """
     if _LOG_DEBUG:
-        if not all((field in child for field in ('fitness', 'survivability'))):
+        if not all((field in descedant for field in ('fitness', 'survivability'))):
             raise ValueError('Child GC has not been characterized.')
 
     # There is no way of characterising first
-    if parent['e_count'] == 1:
-        child['evolvability'] = 1.0
-        child['e_count'] = 1
+    if ancestor_a['e_count'] == 1:
+        descedant['evolvability'] = 1.0
+        descedant['e_count'] = 1
     else:
-        child['evolvability'] = parent['evolvability']
-        child['e_count'] = max((2, parent['e_count'] >> 1))
+        descedant['evolvability'] = ancestor_a['evolvability']
+        descedant['e_count'] = max((2, ancestor_a['e_count'] >> 1))
 
-    inherited_survivability = parent['survivability'] * _POPULATION_PARENTAL_PROTECTION_FACTOR
-    inherited_fitness = parent['fitness'] * _POPULATION_PARENTAL_PROTECTION_FACTOR
-    child['survivability'] = max((child['survivability'], inherited_survivability))
-    child['fitness'] = max((child['fitness'], inherited_fitness))
-    xGC_inherit(child, parent, pgc)
+    inherited_survivability = ancestor_a['survivability'] * _POPULATION_PARENTAL_PROTECTION_FACTOR
+    inherited_fitness = ancestor_a['fitness'] * _POPULATION_PARENTAL_PROTECTION_FACTOR
+    descedant['survivability'] = max((descedant['survivability'], inherited_survivability))
+    descedant['fitness'] = max((descedant['fitness'], inherited_fitness))
+    xGC_inherit(descedant, ancestor_a, ancestor_b, pgc)
 
 
-def xGC_inherit(child, parent, pgc):
+def xGC_inherit(descendant: xGC, ancestor_a: xGC, ancestor_b: xGC, pgc: pGC):
     """Inherit generic properties from parent to child.
 
     child is modified.
@@ -446,11 +448,11 @@ def xGC_inherit(child, parent, pgc):
     """
     # TODO: What about survivability? Treat like the above/ something like it?
 
-    child['population_uid'] = parent['population_uid']
-    child['ancestor_a_ref'] = parent['ref']
-    child['pgc_ref'] = pgc['ref']
-    child['generation'] = parent['generation'] + 1
-    child['effective_pgc_refs'] = copy(parent['effective_pgc_refs'])
-    child['effective_pgc_fitness'] = copy(parent['effective_pgc_fitness'])
+    descendant['population_uid'] = ancestor_a['population_uid']
+    descendant['ancestor_a_ref'] = ancestor_a['ref']
+    descendant['pgc_ref'] = pgc['ref']
+    descendant['generation'] = ancestor_a['generation'] + 1
+    descendant['effective_pgc_refs'] = copy(ancestor_a['effective_pgc_refs'])
+    descendant['effective_pgc_fitness'] = copy(ancestor_a['effective_pgc_fitness'])
 
-    parent['offspring_count'] += 1
+    ancestor_a['offspring_count'] += 1
