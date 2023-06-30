@@ -13,7 +13,7 @@ from egp_types.aGC import aGC
 from egp_types.dGC import dGC
 from .egp_typing import WorkStack, Work, NewGCDef, InsertRow
 
-from .fundamental_physics import default_dict_gc, steady_state_exception
+from .fundamental import default_dict_gc, steady_state_exception
 
 
 _logger: Logger = getLogger(__name__)

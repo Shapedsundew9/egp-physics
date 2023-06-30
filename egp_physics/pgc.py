@@ -13,7 +13,7 @@ from egp_types.gc_graph import gc_graph
 from egp_types.gc_type_tools import M_MASK, NUM_PGC_LAYERS, is_pgc
 from egp_types.reference import ref_str
 
-from .insertion_physics import _insert_gc
+from .insertion import _insert_gc
 
 from numpy import array, float32, isfinite
 from numpy.random import choice as weighted_choice
