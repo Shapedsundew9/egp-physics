@@ -303,7 +303,7 @@ def _insert_graph(tgcg: gc_graph, igcg: gc_graph, above_row: InsertRow) -> tuple
     return rgc_gc_graph, fgc_gc_graph
 
 
-def stabilize(gms: gene_pool, tgc: aGC) -> NewGCDef:
+def stablize(gms: gene_pool, tgc: aGC) -> NewGCDef:
     """If tgc is not stable force a steady state exceptiion"""
     if tgc['gc_graph'].is_stable():
         if _LOG_DEBUG:
