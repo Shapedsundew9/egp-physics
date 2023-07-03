@@ -18,7 +18,7 @@ from egp_types.internal_graph import internal_graph
 from egp_types.reference import ref_str
 from egp_types.aGC import aGC
 from egp_types.dGC import dGC
-from egp_types.egp_typing import Row
+from egp_types.egp_typing import Row, VALID_ROW_SOURCES
 
 from numpy import array, float32, isfinite
 from numpy.random import choice as weighted_choice
@@ -711,10 +711,10 @@ def gc_remove(gms: gene_pool, tgc: aGC, row: Row):
     return _pgc_epilogue(gms, rgc)
 
 
-def _pgc_epilogue(gms, xgc):
-    """Stabilises xGC and updates the gms.
+def _pgc_epilogue(gms: gene_pool, agc: aGC) -> xGC:
+    """Stabilises aGC and updates the gms.
 
-    pGC's may return a single gGC or None if a valid gGC could
+    pGC's may return a single aGC or None if a valid aGC could
     not be created. Since pGC's may be stacked each pGC must
     be able to handle a None input.
 
@@ -723,27 +723,21 @@ def _pgc_epilogue(gms, xgc):
 
     Args
     ----
-    gms (gene_pool or genomic_library): A source of genetic material.
-    xgc (xGC): Unstable GC
+    gms: A source of genetic material.
+    agc: Unstable GC
 
     Returns
     -------
-    rgc (gGC): Resultant gGC or None
+    rgc: Resultant gGC
     """
     if _LOG_DEBUG:
-        _logger.debug(f'PGC epilogue with xgc = {xgc}')
-    if xgc is not None:
-        rgc, fgcs = _insert_gc(gms, xgc)
-        if rgc is not None:
-            # TODO: Yuk - need to de-mush physics & GP. gGC is a GP concept not a GMS one
-            # 7-May-2022: Hmmm! But GP is a GMS and should fallback to GL when looking for a GC
-            # In fact gms in the parameters should be GP?
-            ggcs = gGC((rgc, *fgcs.values()))
-            return ggcs[0]
-    return None
+        _logger.debug(f'pGC epilogue with agc = {agc}')
+    new_gc_definition: NewGCDef = stablize(gms, agc)
+    gms.pool[new_gc_definition[0]['ref']] = new_gc_definition[0]
+    gms.pool.update(new_gc_definition[1])
+    return gms.pool[new_gc_definition[0]['ref']]
 
-
-def gc_remove_all_connections(gms, tgc):
+def gc_remove_all_connections(gms: gene_pool, tgc: xGC) -> xGC:
     """Remove all the connections in gc's graph.
 
     The subsequent invalid graph is normalised and used to create rgc.
@@ -755,24 +749,22 @@ def gc_remove_all_connections(gms, tgc):
 
     Args
     ----
-    gms (gene_pool or genomic_library): A source of genetic material.
-    tgc (xgc): Target xGC to modify.
+    gms: A source of genetic material.
+    tgc: Target xGC to modify.
 
     Returns
     -------
-    rgc (mGC): Resultant minimal GC with a valid graph or None
+    rgc: Resultant xGC with a valid graph
     """
-    egc = None
-    if tgc is not None:
-        egc = eGC(_clone(tgc))
-        if _LOG_DEBUG:
-            _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
-        egc['gc_graph'].remove_all_connections()
-        egc['gc_graph'].normalize()
+    egc = eGC(_clone(tgc))
+    if _LOG_DEBUG:
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
+    egc['gc_graph'].remove_all_connections()
+    egc['gc_graph'].normalize()
     return _pgc_epilogue(gms, egc)
 
 
-def gc_add_input(gms, tgc):
+def gc_add_input(gms: gene_pool, tgc: xGC) -> xGC:
     """Add a random input to the GC.
 
     The subsequent graph is normalised and used to create rgc.
@@ -784,24 +776,22 @@ def gc_add_input(gms, tgc):
 
     Args
     ----
-    gms (gene_pool or genomic_library): A source of genetic material.
-    tgc (xgc): Target xGC to modify.
+    gms: A source of genetic material.
+    tgc: Target xGC to modify.
 
     Returns
     -------
-    rgc (mGC): Resultant minimal GC with a valid graph or None
+    rgc: Resultant xGC with a valid graph or None
     """
-    egc = None
-    if tgc is not None:
-        egc = eGC(_clone(tgc))
-        if _LOG_DEBUG:
-            _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
-        egc['gc_graph'].add_input()
-        egc['gc_graph'].normalize()
+    egc = eGC(_clone(tgc))
+    if _LOG_DEBUG:
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
+    egc['gc_graph'].add_input()
+    egc['gc_graph'].normalize()
     return _pgc_epilogue(gms, egc)
 
 
-def gc_remove_input(gms, tgc):
+def gc_remove_input(gms: gene_pool, tgc: xGC) -> xGC:
     """Remove a random input from the GC.
 
     The subsequent graph is normalised and used to create rgc.
@@ -813,24 +803,22 @@ def gc_remove_input(gms, tgc):
 
     Args
     ----
-    gms (gene_pool or genomic_library): A source of genetic material.
-    tgc (xgc): Target xGC to modify.
+    gms: A source of genetic material.
+    tgc: Target xGC to modify.
 
     Returns
     -------
-    rgc (mGC): Resultant minimal GC with a valid graph or None
+    rgc: Resultant minimal GC with a valid graph or None
     """
-    egc = None
-    if tgc is not None:
-        egc = eGC(_clone(tgc))
-        if _LOG_DEBUG:
-            _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
-        egc['gc_graph'].remove_input()
-        egc['gc_graph'].normalize()
+    egc = eGC(_clone(tgc))
+    if _LOG_DEBUG:
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
+    egc['gc_graph'].remove_input()
+    egc['gc_graph'].normalize()
     return _pgc_epilogue(gms, egc)
 
 
-def gc_add_output(gms, tgc):
+def gc_add_output(gms: gene_pool, tgc: xGC) -> xGC:
     """Add a random output to the GC.
 
     The subsequent graph is normalised and used to create rgc.
@@ -842,24 +830,22 @@ def gc_add_output(gms, tgc):
 
     Args
     ----
-    gms (gene_pool or genomic_library): A source of genetic material.
-    tgc (xgc): Target xGC to modify.
+    gms: A source of genetic material.
+    tgc: Target xGC to modify.
 
     Returns
     -------
-    rgc (mGC): Resultant minimal GC with a valid graph or None
+    rgc: Resultant minimal GC with a valid graph or None
     """
-    egc = None
-    if tgc is not None:
-        egc = eGC(_clone(tgc))
-        if _LOG_DEBUG:
-            _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
-        egc['gc_graph'].add_output()
-        egc['gc_graph'].normalize()
+    egc = eGC(_clone(tgc))
+    if _LOG_DEBUG:
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
+    egc['gc_graph'].add_output()
+    egc['gc_graph'].normalize()
     return _pgc_epilogue(gms, egc)
 
 
-def gc_remove_output(gms, tgc):
+def gc_remove_output(gms: gene_pool, tgc: xGC) -> xGC:
     """Add a random input from the GC.
 
     The subsequent graph is normalised and used to create rgc.
@@ -871,24 +857,22 @@ def gc_remove_output(gms, tgc):
 
     Args
     ----
-    gms (gene_pool or genomic_library): A source of genetic material.
-    tgc (xgc): Target xGC to modify.
+    gms: A source of genetic material.
+    tgc: Target xGC to modify.
 
     Returns
     -------
-    rgc (mGC): Resultant minimal GC with a valid graph or None
+    rgc: Resultant minimal GC with a valid graph or None
     """
-    egc = None
-    if tgc is not None:
-        egc = eGC(_clone(tgc))
-        if _LOG_DEBUG:
-            _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
-        egc['gc_graph'].add_output()
-        egc['gc_graph'].normalize()
+    egc = eGC(_clone(tgc))
+    if _LOG_DEBUG:
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
+    egc['gc_graph'].add_output()
+    egc['gc_graph'].normalize()
     return _pgc_epilogue(gms, egc)
 
 
-def gc_remove_constant(gms, tgc):
+def gc_remove_constant(gms: gene_pool, tgc: xGC) -> xGC:
     """Remove a random constant from the GC.
 
     The subsequent graph is normalised and used to create rgc.
@@ -900,24 +884,22 @@ def gc_remove_constant(gms, tgc):
 
     Args
     ----
-    gms (gene_pool or genomic_library): A source of genetic material.
-    tgc (xgc): Target xGC to modify.
+    gms: A source of genetic material.
+    tgc: Target xGC to modify.
 
     Returns
     -------
-    rgc (mGC): Resultant minimal GC with a valid graph or None
+    rgc: Resultant minimal GC with a valid graph or None
     """
-    egc = None
-    if tgc is not None:
-        egc = eGC(_clone(tgc))
-        if _LOG_DEBUG:
-            _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
-        egc['gc_graph'].remove_constant()
-        egc['gc_graph'].normalize()
+    egc = eGC(_clone(tgc))
+    if _LOG_DEBUG:
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
+    egc['gc_graph'].remove_constant()
+    egc['gc_graph'].normalize()
     return _pgc_epilogue(gms, egc)
 
 
-def proximity_select(gms, xputs):
+def proximity_select(gms: gene_pool, xputs: dict[str, list]) -> aGC:
     """Select a genetic code to at least partially connect inputs to outputs.
 
     The selection is weighted random based on the suitability of the candidates
@@ -941,7 +923,7 @@ def proximity_select(gms, xputs):
 
     Args
     ----
-    xputs (dict): The inputs & outputs required of the candidates.
+    xputs: The inputs & outputs required of the candidates.
         {
             'input_types': list(int) - list of ascending gc_types in the inputs.
             'inputs': list(int) - Ordered indexes into list above defining the GC input interface.
@@ -954,7 +936,7 @@ def proximity_select(gms, xputs):
 
     Returns
     -------
-    (int, dict): (match_type, agc) or None
+    aGC
     """
     # TODO: Lots of short queries is inefficient. Ideas:
     #   a) Specific query support from GPC (interface hash)
@@ -964,22 +946,22 @@ def proximity_select(gms, xputs):
     #   e) Optimize DB for these queries.
     #   f) Cache queries at the DB, in the parent process & in the sub-process?
     #   g) This should first search the GP and fallback to the GL
-    match_type = randint(0, _NUM_MATCH_TYPES - 1)
+    # TODO: Radical idea: Above is for truely random GC selection. Rare events. In general 'nearby' GCs
+    #   will be close releations in the gene pool. 
+    match_type: int = randint(0, _NUM_MATCH_TYPES - 1)
     agc = tuple(gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs))
     while not agc and match_type < _NUM_MATCH_TYPES - 1:
         if _LOG_DEBUG:
             _logger.debug(f'Proximity selection match_type {match_type} found no candidates.')
         match_type += 1
         agc = tuple(gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs))
-    if agc:
-        if _LOG_DEBUG:
-            _logger.debug(f'Proximity selection match_type {match_type} found a candidate.')
-            _logger.debug(f"Candidate: {agc[0]}")
-        return agc[0]
-    return None
+    if _LOG_DEBUG:
+        _logger.debug(f'Proximity selection match_type {match_type} found a candidate.')
+        _logger.debug(f"Candidate: {agc[0]}")
+    return agc[0]
 
 
-def steady_state_exception(gms, fgc):
+def steady_state_exception(gms: gene_pool, fgc: aGC) -> WorkStack:
     """Define what GC must be inserted to complete or partially complete the fgc graph.
 
     fgc is analysed to determine what end point destinations are unconnected and the highest row
@@ -993,29 +975,27 @@ def steady_state_exception(gms, fgc):
 
     Args
     ----
-    gms (object): Either a gene_pool or genomic_library instance.
+    gms: A source of genetic material
     fgc (fGC): fGC with incomplete graph.
 
     Returns
     -------
-    (fGC, fGC, str): (target_gc, insert_gc, 'A', 'B' or 'O') or None
+    A workstack: (target_gc, insert_gc, 'A', 'B' or 'O')
     """
     if _LOG_DEBUG:
         _logger.debug(f"Steady state exception thrown for GC ref {ref_str(fgc['ref'])}.")
-    fgc_graph = fgc['gc_graph']
+    fgc_graph: gc_graph = fgc['gc_graph']
 
     # Find unconnected destination endpoints. Determine highest row & endpoint types.
-    dst_list = list(filter(fgc_graph.unreferenced_filter(fgc_graph.dst_filter()), fgc_graph.graph.values()))
     above_row = 'Z'
-    outputs = []
-    for ep in dst_list:
-        if ep[ep_idx.ROW] < above_row:
-            above_row = ep[ep_idx.ROW]
-        outputs.append(ep[ep_idx.TYPE])
+    outputs: list[int] = []
+    for ep in fgc_graph.i_graph.dst_unref_filter():
+        if ep.row < above_row:
+            above_row: Row = ep.row
+        outputs.append(ep.typ)
 
     # Find viable source types above the highest row.
-    filter_func = fgc_graph.rows_filter(fgc_graph.src_rows[above_row], fgc_graph.src_filter())
-    inputs = list((ep[ep_idx.TYPE] for ep in filter(filter_func, fgc_graph.graph.values())))
+    inputs: list[int] = [ep.typ for ep in fgc_graph.i_graph.src_rows_filter(VALID_ROW_SOURCES[above_row])]
 
     xputs = {
         'exclude_column': 'signature',
@@ -1025,11 +1005,7 @@ def steady_state_exception(gms, fgc):
     _, xputs['otypes'], xputs['oidx'] = interface_definition(outputs, vtype.EP_TYPE_INT)
 
     # Find a gc based on the criteria
-    insert_gc = proximity_select(gms, xputs)
-    if insert_gc is None:
-        _logger.warning("Steady state exception failed to find a candidate in the GMS.")
-        return None
-
+    insert_gc: aGC = proximity_select(gms, xputs)
     return (fgc, eGC(insert_gc), above_row)
 
 
@@ -1050,7 +1026,7 @@ def create_SMS(gp, pgc, ggc):
     """
     parent = gp.pool.get(ggc['ancestor_a_ref'])
     lineage = [ggc, parent]
-    assert pgc['ref'] == ggc['pgc_ref'], 'pGC providied did not create ggc!'
+    assert pgc['ref'] == ggc['pgc_ref'], 'pGC provided did not create ggc!'
     parent['effective_pgc_refs'].append(pgc['ref'])
     sms = pgc
 
