@@ -10,7 +10,7 @@ from egp_execution.execution import create_callable
 from egp_stores.gene_pool_cache import gene_pool_cache
 from egp_stores.gene_pool import gene_pool
 from egp_types.eGC import eGC
-from egp_types.xGC import xGC
+from egp_types.xGC import xGC, pGC, gGC
 from egp_types.ep_type import interface_definition, vtype
 from egp_types.gc_graph import DST_EP, SRC_EP, gc_graph
 from egp_types.gc_type_tools import M_MASK, NUM_PGC_LAYERS, is_pgc
@@ -899,7 +899,7 @@ def gc_remove_constant(gms: gene_pool, tgc: xGC) -> xGC:
     return _pgc_epilogue(gms, egc)
 
 
-def proximity_select(gms: gene_pool, xputs: dict[str, list]) -> aGC:
+def interface_proximity_select(gms: gene_pool, xputs: dict[str, list | str]) -> aGC:
     """Select a genetic code to at least partially connect inputs to outputs.
 
     The selection is weighted random based on the suitability of the candidates
@@ -917,6 +917,9 @@ def proximity_select(gms: gene_pool, xputs: dict[str, list]) -> aGC:
     for match N and type of match N+1 will be
     attempted. If no matches are found for match type 3 then None is returned.
 
+    TODO: The occurance rate of this function needs to be carefully monitored. It probably
+    should push back some cost into the system. Mutations should evolve to be stable.
+    This is a key metric to the maturity of the system.    
     TODO: *The performance of this function needs careful benchmarking. The higher index
     match types could return a lot of results for the random selection step.
     TODO: Consider match types where the order of inputs/outputs does not matter.
@@ -997,7 +1000,7 @@ def steady_state_exception(gms: gene_pool, fgc: aGC) -> WorkStack:
     # Find viable source types above the highest row.
     inputs: list[int] = [ep.typ for ep in fgc_graph.i_graph.src_rows_filter(VALID_ROW_SOURCES[above_row])]
 
-    xputs = {
+    xputs: dict[str, list | str] = {
         'exclude_column': 'signature',
         'exclusions': list()
     }
@@ -1005,11 +1008,11 @@ def steady_state_exception(gms: gene_pool, fgc: aGC) -> WorkStack:
     _, xputs['otypes'], xputs['oidx'] = interface_definition(outputs, vtype.EP_TYPE_INT)
 
     # Find a gc based on the criteria
-    insert_gc: aGC = proximity_select(gms, xputs)
+    insert_gc: aGC = interface_proximity_select(gms, xputs)
     return (fgc, eGC(insert_gc), above_row)
 
 
-def create_SMS(gp, pgc, ggc):
+def create_SMS(gms: gene_pool, pgc: pGC, ggc: gGC):
     """Create a Super Mutation Sequence (SMS).
 
     pgc has positively mutated gc's parent to create ggc.
@@ -1024,54 +1027,17 @@ def create_SMS(gp, pgc, ggc):
     pgc (pGC): A physical GC that positively changed ggc's parent to create ggc.
     ggc (gGC): A target population individual.
     """
-    parent = gp.pool.get(ggc['ancestor_a_ref'])
-    lineage = [ggc, parent]
-    assert pgc['ref'] == ggc['pgc_ref'], 'pGC provided did not create ggc!'
-    parent['effective_pgc_refs'].append(pgc['ref'])
-    sms = pgc
-
-    # Consecutive increases in fitness
-    increase = 0.0
-    while lineage[-1] is not None and lineage[-1]['fitness'] < lineage[-2]['fitness']:
-        sms = gc_stack(gp, lineage[-1]['pgc_ref'], sms)
-        increase += lineage[-2] - lineage[-1]
-        parent['effective_pgc_refs'].append(sms['ref'])
-        lineage.append(gp.pool.get(lineage[-1]['ancestor_a_ref']))
-        if _LOG_DEBUG:
-            assert is_pgc(sms), 'Super Mutation Sequence is not a pGC!'
-
-    # Consecutive reductions in fitness
-    while lineage[-1] is not None and lineage[-1]['fitness'] >= lineage[-2]['fitness']:
-
-        # Even though this SMS may be net negative there is a possibility of mutation
-        # to extract a net positive that is worth keeping.
-        sms = gc_stack(gp, lineage[-1]['pgc_ref'], sms)
-
-        # If the total increase in this SMS is still net >0.0 add it as an effective pGC
-        increase += lineage[-2] - lineage[-1]
-        if increase > 0.0:
-            parent['effective_pgc_refs'].append(sms['ref'])
-        lineage.append(gp.pool.get(lineage[-1]['ancestor_a_ref']))
-        if _LOG_DEBUG:
-            assert is_pgc(sms), 'Super Mutation Sequence is not a pGC!'
-
-    terminal = lineage.pop()
-    if terminal is None:
-        assert lineage[-1]['generation'] == 0, 'SMS lineage terminated but oldest ancestor is not generation 0!'
-
-    # If increase is still >0.0 then we have an SMS chain
-    if increase > 0.0 and terminal is not None and terminal['sms_ref'] is not None:
-        sms = gc_stack(gp, terminal['sms_ref'], sms)
-        parent['effective_pgc_refs'].append(sms['ref'])
-        if _LOG_DEBUG:
-            assert is_pgc(sms), 'Super Mutation Sequence is not a pGC!'
-
-    # Record the positive SMS
-    parent['sms_ref'] = sms['ref']
+    # Removed: This should be handled through primatives
+    # i.e. Make these mutation pGC's
+    # 1. Get xGC ancestor pGC
+    # 2. Get xGC pGC
+    # 3. Stack 1. on 2.
+    # 4. Get delta fitness for xGC and ancestor(s)
+    # 5. if 4. > 0.0 then 3. else no-op
+    #  etc. These pGC's will then get fitter or die out. 
 
 
-# TODO: use pGC_fitness to call create_SMS when delta_fitness is positive
-def pGC_fitness(gp: gene_pool_cache, pgc: _gGC, ggc: _gGC, delta_fitness: Union[float, None]) -> int:
+def pGC_fitness(gp: gene_pool_cache, pgc: pGC, ggc: gGC, delta_fitness: float) -> int:
     """Update the fitness of the pGC and the pGC's that created it.
 
     pgc is modified.
@@ -1083,8 +1049,8 @@ def pGC_fitness(gp: gene_pool_cache, pgc: _gGC, ggc: _gGC, delta_fitness: Union[
     ----
     gp: The gene_pool that contains pGC and its creators.
     pgc: A physical GC.
-    ggc: The gGC created by pgc changing fitness from its parent by delta_fitness: May be None.
-    delta_fitness: The change in fitness of the GC pGC mutated. May be None.
+    ggc: The gGC created by pgc changing fitness from its parent by delta_fitness
+    delta_fitness: The change in fitness of the GC pGC mutated.
 
     Returns
     -------
@@ -1093,9 +1059,9 @@ def pGC_fitness(gp: gene_pool_cache, pgc: _gGC, ggc: _gGC, delta_fitness: Union[
     depth = 0
     _pGC_fitness(pgc, ggc, delta_fitness, depth)
     delta_fitness = pgc['pgc_delta_fitness'][depth]
-    evolved = evolve_physical(gp, pgc, depth)
+    evolved: bool = evolve_physical(gp, pgc, depth)
     evolutions = int(evolved)
-    pgc_creator = gp.pool.get(pgc['pgc_ref'], None)
+    pgc_creator: int | None = gp.pool.get(pgc['pgc_ref'], None)
     while evolved and pgc_creator is not None:
         depth += 1
         _pGC_evolvability(pgc_creator, delta_fitness, depth)
@@ -1108,7 +1074,7 @@ def pGC_fitness(gp: gene_pool_cache, pgc: _gGC, ggc: _gGC, delta_fitness: Union[
     return evolutions
 
 
-def _pGC_fitness(pgc: _gGC, xgc: _gGC, delta_fitness: Union[float, None], depth: int) -> float:
+def _pGC_fitness(pgc: pGC, delta_fitness: float, depth: int) -> float:
     """Update the fitness of the pGC.
 
     pgc is modified.
@@ -1132,18 +1098,13 @@ def _pGC_fitness(pgc: _gGC, xgc: _gGC, delta_fitness: Union[float, None], depth:
     -------
     Mapped delta_fitness
     """
-    old_count = pgc['pgc_f_count'][depth]
+    old_count: int = pgc['pgc_f_count'][depth]
     pgc['pgc_f_count'][depth] += 1
-
-    if delta_fitness is None:
-        delta_fitness = -1.0
-
     pgc['pgc_fitness'][depth] = (old_count * pgc['pgc_fitness'][depth] + (delta_fitness / 2 + 0.5)) / pgc['pgc_f_count'][depth]
-
     return delta_fitness
 
 
-def _pGC_evolvability(pgc, delta_fitness, depth):
+def _pGC_evolvability(pgc: pGC, delta_fitness: float, depth: int) -> None:
     """Update the evolvability of a PGC.
 
     pgc is modified.
@@ -1155,13 +1116,13 @@ def _pGC_evolvability(pgc, delta_fitness, depth):
     delta_fitness (float): Difference in fitness between this GC & its offspring.
     depth (int): The layer in the environment pgc is at.
     """
-    increase = 0.0 if delta_fitness < 0 else delta_fitness
-    old_count = pgc['pgc_e_count'][depth]
+    increase: float = 0.0 if delta_fitness < 0 else delta_fitness
+    old_count: int = pgc['pgc_e_count'][depth]
     pgc['pgc_e_count'][depth] += 1
     pgc['pgc_evolvability'][depth] = (old_count * pgc['pgc_evolvability'][depth] + increase) / pgc['pgc_e_count'][depth]
 
 
-def population_GC_evolvability(xgc, delta_fitness):
+def population_GC_evolvability(ggc: gGC, delta_fitness: float) -> None:
     """Update the evolvability of a population GC.
 
     xgc is modified.
@@ -1172,13 +1133,13 @@ def population_GC_evolvability(xgc, delta_fitness):
     xgc (pGC): xGC to update.
     delta_fitness (float): Difference in fitness between this GC & its offspring.
     """
-    increase = 0.0 if delta_fitness < 0 else delta_fitness
-    old_count = xgc['e_count']
-    xgc['e_count'] += 1
-    xgc['evolvability'] = (old_count * xgc['evolvability'] + increase) / xgc['e_count']
+    increase: float = 0.0 if delta_fitness < 0 else delta_fitness
+    old_count: int = ggc['e_count']
+    ggc['e_count'] += 1
+    ggc['evolvability'] = (old_count * ggc['evolvability'] + increase) / ggc['e_count']
 
 
-def evolve_physical(gp, pgc, depth):
+def evolve_physical(gms: gene_pool, pgc: pGC, depth: int) -> bool:
     """Evolve the pgc as needed.
 
     pgc is checked to see if it meets evolution criteria. If it does
@@ -1200,10 +1161,9 @@ def evolve_physical(gp, pgc, depth):
     """
     if not (pgc['pgc_f_count'][depth] & M_MASK):
         pgc['pgc_delta_fitness'][depth] = 0.0
-        gp.layer_evolutions[depth] += 1  # FIXME: Ugh!
 
-        ppgc = select_pGC(gp, pgc, depth + 1)
-        wrapped_ppgc_callable = create_callable(ppgc, gp.pool)
+        ppgc = select_pGC(gms, pgc, depth + 1)
+        wrapped_ppgc_callable = create_callable(ppgc, gms.pool)
         result = wrapped_ppgc_callable((pgc,))
         if result is None:
             # pGC went pop - should not happen very often
