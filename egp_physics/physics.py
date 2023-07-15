@@ -4,7 +4,7 @@ from copy import copy, deepcopy
 from logging import DEBUG, Logger, NullHandler, getLogger
 from pprint import pformat
 from random import randint
-from typing import Literal, LiteralString, Union, Callable
+from typing import Literal, LiteralString, Callable, cast
 
 from egp_execution.execution import create_callable
 from egp_stores.gene_pool_cache import gene_pool_cache
@@ -85,11 +85,11 @@ def default_dict_gc(ref: Callable[[], int]) -> dGC:
     """Create a default DictGC with ref generated from ref()."""
     return {
         'gc_graph': _EMPTY_GC_GRAPH,
-        'ancestor_a_ref': None,
-        'ancestor_b_ref': None,
+        'ancestor_a_ref': 0,
+        'ancestor_b_ref': 0,
         'ref': ref(),
-        'gca_ref': None,
-        'gcb_ref': None
+        'gca_ref': 0,
+        'gcb_ref': 0
     }
 
 
@@ -653,7 +653,7 @@ def gc_stack(gms: gene_pool, bottom_gc: aGC, top_gc: aGC, invert=False) -> xGC:
 
 
 def _clone(gc_to_clone: aGC, ref: Callable[[], int], copy_graph: bool = True) -> dGC:
-    """Create a minimal close of gc.
+    """Create a minimal clone of gc.
 
     Args
     ----
@@ -668,7 +668,7 @@ def _clone(gc_to_clone: aGC, ref: Callable[[], int], copy_graph: bool = True) ->
         'ancestor_a_ref': gc_to_clone['ref'],
         'ancestor_b_ref': 0,
         # If gc is a codon then it does not have a GCA
-        'gca_ref': gc_to_clone['gca_ref'] if gc_to_clone['gca_ref'] is not None else gc_to_clone['ref'],
+        'gca_ref': gc_to_clone['gca_ref'] if gc_to_clone['gca_ref'] else gc_to_clone['ref'],
         'gcb_ref': gc_to_clone['gcb_ref'],
         # More efficient than reconstructing
         'gc_graph': deepcopy(gc_to_clone['gc_graph']) if copy_graph else gc_graph()
@@ -682,32 +682,42 @@ def gc_remove(gms: gene_pool, tgc: aGC, row: Row):
     Removing a row is likely to result in an invalid graph which is
     repaired using recursive steady state exceptions.
 
+    In the case row = 'P' or 'O' this is a single to remove row F
+    and remove the path through 'P' or 'O'. NB: GC will still have a valid
+    row 'O'.
+
     Args
     ----
     gms: A source of genetic material.
     tgc: Target xGC to modify.
-    abcpo: Either 'A', 'B', 'C', 'P' or 'O'. If None a row is removed at random.
+    row: Either 'A', 'B', 'C', 'P' or 'O'.
 
     Returns
     -------
-    rgc (mGC): Resultant minimal GC with a valid graph or None
+    rgc: Resultant minimal GC with a valid graph
     """
-    # FIXME: Can you move row 'O"?
     rgc: dGC = _clone(tgc, gms.next_reference, False)
     if _LOG_DEBUG:
         _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(rgc['ref'])}")
         _logger.debug(f'Removing row {row}.')
     rgc_igraph: internal_graph = internal_graph()
-    rgc_igraph.update(tgc['gc_graph'].i_graph.copy_rows(('I', 'C')))
+    rgc_igraph.update(tgc['gc_graph'].i_graph.copy_row('I'))
+    if row != 'C':
+        rgc_igraph.update(tgc['gc_graph'].i_graph.copy_row('C'))
     if row == 'A':
         rgc['gca_ref'] = tgc['gcb_ref']
-        rgc['gcb_ref'] = None
+        rgc['gcb_ref'] = 0
+        if  tgc['gc_graph'].has_b:
+            rgc_igraph.update(tgc['gc_graph'].i_graph.move_row('B', 'A', has_f=tgc['gc_graph'].has_f))
     elif row == 'B':
         rgc['gca_ref'] = tgc['gca_ref']
-        rgc['gcb_ref'] = None
+        rgc_igraph.update(tgc['gc_graph'].i_graph.copy_row('A'))
+        rgc['gcb_ref'] = 0
     elif row == 'P':
-        rgc_igraph.remove_rows('FP')
-    rgc_igraph.normalize()
+        rgc_igraph.update(tgc['gc_graph'].i_graph.copy_row('O'))
+    elif row == 'O':
+        rgc_igraph.update(tgc['gc_graph'].i_graph.move_row('P', 'O'))
+    rgc['gc_graph'].normalize()
     return _pgc_epilogue(gms, rgc)
 
 
@@ -737,6 +747,7 @@ def _pgc_epilogue(gms: gene_pool, agc: aGC) -> xGC:
     gms.pool.update(new_gc_definition[1])
     return gms.pool[new_gc_definition[0]['ref']]
 
+
 def gc_remove_all_connections(gms: gene_pool, tgc: xGC) -> xGC:
     """Remove all the connections in gc's graph.
 
@@ -756,12 +767,12 @@ def gc_remove_all_connections(gms: gene_pool, tgc: xGC) -> xGC:
     -------
     rgc: Resultant xGC with a valid graph
     """
-    egc = eGC(_clone(tgc))
+    dgc: dGC = _clone(tgc, gms.next_reference)
     if _LOG_DEBUG:
-        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
-    egc['gc_graph'].remove_all_connections()
-    egc['gc_graph'].normalize()
-    return _pgc_epilogue(gms, egc)
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}")
+    dgc['gc_graph'].remove_all_connections()
+    dgc['gc_graph'].normalize()
+    return _pgc_epilogue(gms, dgc)
 
 
 def gc_add_input(gms: gene_pool, tgc: xGC) -> xGC:
@@ -783,12 +794,12 @@ def gc_add_input(gms: gene_pool, tgc: xGC) -> xGC:
     -------
     rgc: Resultant xGC with a valid graph or None
     """
-    egc = eGC(_clone(tgc))
+    dgc: dGC = _clone(tgc, gms.next_reference)
     if _LOG_DEBUG:
-        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
-    egc['gc_graph'].add_input()
-    egc['gc_graph'].normalize()
-    return _pgc_epilogue(gms, egc)
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}")
+    dgc['gc_graph'].add_input()
+    dgc['gc_graph'].normalize()
+    return _pgc_epilogue(gms, dgc)
 
 
 def gc_remove_input(gms: gene_pool, tgc: xGC) -> xGC:
@@ -810,12 +821,12 @@ def gc_remove_input(gms: gene_pool, tgc: xGC) -> xGC:
     -------
     rgc: Resultant minimal GC with a valid graph or None
     """
-    egc = eGC(_clone(tgc))
+    dgc: dGC = _clone(tgc, gms.next_reference)
     if _LOG_DEBUG:
-        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
-    egc['gc_graph'].remove_input()
-    egc['gc_graph'].normalize()
-    return _pgc_epilogue(gms, egc)
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}")
+    dgc['gc_graph'].remove_input()
+    dgc['gc_graph'].normalize()
+    return _pgc_epilogue(gms, dgc)
 
 
 def gc_add_output(gms: gene_pool, tgc: xGC) -> xGC:
@@ -837,12 +848,12 @@ def gc_add_output(gms: gene_pool, tgc: xGC) -> xGC:
     -------
     rgc: Resultant minimal GC with a valid graph or None
     """
-    egc = eGC(_clone(tgc))
+    dgc: dGC = _clone(tgc, gms.next_reference)
     if _LOG_DEBUG:
-        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
-    egc['gc_graph'].add_output()
-    egc['gc_graph'].normalize()
-    return _pgc_epilogue(gms, egc)
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}")
+    dgc['gc_graph'].add_output()
+    dgc['gc_graph'].normalize()
+    return _pgc_epilogue(gms, dgc)
 
 
 def gc_remove_output(gms: gene_pool, tgc: xGC) -> xGC:
@@ -864,12 +875,12 @@ def gc_remove_output(gms: gene_pool, tgc: xGC) -> xGC:
     -------
     rgc: Resultant minimal GC with a valid graph or None
     """
-    egc = eGC(_clone(tgc))
+    dgc: dGC = _clone(tgc, gms.next_reference)
     if _LOG_DEBUG:
-        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
-    egc['gc_graph'].add_output()
-    egc['gc_graph'].normalize()
-    return _pgc_epilogue(gms, egc)
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}")
+    dgc['gc_graph'].add_output()
+    dgc['gc_graph'].normalize()
+    return _pgc_epilogue(gms, dgc)
 
 
 def gc_remove_constant(gms: gene_pool, tgc: xGC) -> xGC:
@@ -891,15 +902,15 @@ def gc_remove_constant(gms: gene_pool, tgc: xGC) -> xGC:
     -------
     rgc: Resultant minimal GC with a valid graph or None
     """
-    egc = eGC(_clone(tgc))
+    dgc: dGC = _clone(tgc, gms.next_reference)
     if _LOG_DEBUG:
-        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(egc['ref'])}")
-    egc['gc_graph'].remove_constant()
-    egc['gc_graph'].normalize()
-    return _pgc_epilogue(gms, egc)
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}")
+    dgc['gc_graph'].remove_constant()
+    dgc['gc_graph'].normalize()
+    return _pgc_epilogue(gms, dgc)
 
 
-def interface_proximity_select(gms: gene_pool, xputs: dict[str, list | str]) -> aGC:
+def interface_proximity_select(gms: gene_pool, xputs: dict[str, bytes | list | str]) -> aGC:
     """Select a genetic code to at least partially connect inputs to outputs.
 
     The selection is weighted random based on the suitability of the candidates
@@ -923,6 +934,8 @@ def interface_proximity_select(gms: gene_pool, xputs: dict[str, list | str]) -> 
     TODO: *The performance of this function needs careful benchmarking. The higher index
     match types could return a lot of results for the random selection step.
     TODO: Consider match types where the order of inputs/outputs does not matter.
+    TODO: To find a 'match' we can not only loosen the criteria we can also
+    reach out further to the microbiome (which can reach out to the biome and so on)
 
     Args
     ----
@@ -950,7 +963,7 @@ def interface_proximity_select(gms: gene_pool, xputs: dict[str, list | str]) -> 
     #   f) Cache queries at the DB, in the parent process & in the sub-process?
     #   g) This should first search the GP and fallback to the GL
     # TODO: Radical idea: Above is for truely random GC selection. Rare events. In general 'nearby' GCs
-    #   will be close releations in the gene pool. 
+    #   will be close relations in the gene pool. 
     match_type: int = randint(0, _NUM_MATCH_TYPES - 1)
     agc = tuple(gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs))
     while not agc and match_type < _NUM_MATCH_TYPES - 1:
@@ -964,7 +977,7 @@ def interface_proximity_select(gms: gene_pool, xputs: dict[str, list | str]) -> 
     return agc[0]
 
 
-def steady_state_exception(gms: gene_pool, fgc: aGC) -> WorkStack:
+def steady_state_exception(gms: gene_pool, fgc: aGC) -> Work:
     """Define what GC must be inserted to complete or partially complete the fgc graph.
 
     fgc is analysed to determine what end point destinations are unconnected and the highest row
@@ -990,17 +1003,17 @@ def steady_state_exception(gms: gene_pool, fgc: aGC) -> WorkStack:
     fgc_graph: gc_graph = fgc['gc_graph']
 
     # Find unconnected destination endpoints. Determine highest row & endpoint types.
-    above_row = 'Z'
+    above_row: str = 'Z'
     outputs: list[int] = []
     for ep in fgc_graph.i_graph.dst_unref_filter():
         if ep.row < above_row:
-            above_row: Row = ep.row
+           _above_row = ep.row
         outputs.append(ep.typ)
 
     # Find viable source types above the highest row.
-    inputs: list[int] = [ep.typ for ep in fgc_graph.i_graph.src_rows_filter(VALID_ROW_SOURCES[above_row])]
+    inputs: list[int] = [ep.typ for ep in fgc_graph.i_graph.src_rows_filter(VALID_ROW_SOURCES[fgc['gc_graph'].has_f][cast(Row, above_row)])]
 
-    xputs: dict[str, list | str] = {
+    xputs: dict[str, bytes | list | str] = {
         'exclude_column': 'signature',
         'exclusions': list()
     }
@@ -1009,7 +1022,7 @@ def steady_state_exception(gms: gene_pool, fgc: aGC) -> WorkStack:
 
     # Find a gc based on the criteria
     insert_gc: aGC = interface_proximity_select(gms, xputs)
-    return (fgc, eGC(insert_gc), above_row)
+    return (fgc, insert_gc, cast(InsertRow, above_row))
 
 
 def create_SMS(gms: gene_pool, pgc: pGC, ggc: gGC):
@@ -1037,7 +1050,7 @@ def create_SMS(gms: gene_pool, pgc: pGC, ggc: gGC):
     #  etc. These pGC's will then get fitter or die out. 
 
 
-def pGC_fitness(gp: gene_pool_cache, pgc: pGC, ggc: gGC, delta_fitness: float) -> int:
+def pGC_fitness(gms: gene_pool, pgc: pGC, ggc: gGC, delta_fitness: float) -> int:
     """Update the fitness of the pGC and the pGC's that created it.
 
     pgc is modified.
@@ -1047,7 +1060,7 @@ def pGC_fitness(gp: gene_pool_cache, pgc: pGC, ggc: gGC, delta_fitness: float) -
 
     Args
     ----
-    gp: The gene_pool that contains pGC and its creators.
+    gms: The gene_pool that contains pGC and its creators.
     pgc: A physical GC.
     ggc: The gGC created by pgc changing fitness from its parent by delta_fitness
     delta_fitness: The change in fitness of the GC pGC mutated.
@@ -1057,20 +1070,21 @@ def pGC_fitness(gp: gene_pool_cache, pgc: pGC, ggc: gGC, delta_fitness: float) -
     The number of pGC evolutions that occured as a result of the fitness update.
     """
     depth = 0
-    _pGC_fitness(pgc, ggc, delta_fitness, depth)
+    _pGC_fitness(pgc, delta_fitness, depth)
     delta_fitness = pgc['pgc_delta_fitness'][depth]
-    evolved: bool = evolve_physical(gp, pgc, depth)
+    evolved: bool = evolve_physical(gms, pgc, depth)
     evolutions = int(evolved)
-    pgc_creator: int | None = gp.pool.get(pgc['pgc_ref'], None)
+    pgc_creator: xGC | None = gms.pool.get(pgc['pgc_ref'])
     while evolved and pgc_creator is not None:
         depth += 1
+        pgc_creator = cast(pGC, pgc_creator)
         _pGC_evolvability(pgc_creator, delta_fitness, depth)
-        _pGC_fitness(pgc_creator, pgc, delta_fitness, depth)
+        _pGC_fitness(pgc_creator, delta_fitness, depth)
         delta_fitness = pgc_creator['pgc_delta_fitness'][depth]
-        evolved = evolve_physical(gp, pgc_creator, depth)
+        evolved = evolve_physical(gms, pgc_creator, depth)
         evolutions += evolved
         pgc = pgc_creator
-        pgc_creator = gp.pool.get(pgc_creator['pgc_ref'], None)
+        pgc_creator = gms.pool.get(pgc_creator['pgc_ref'], None)
     return evolutions
 
 
@@ -1161,8 +1175,7 @@ def evolve_physical(gms: gene_pool, pgc: pGC, depth: int) -> bool:
     """
     if not (pgc['pgc_f_count'][depth] & M_MASK):
         pgc['pgc_delta_fitness'][depth] = 0.0
-
-        ppgc = select_pGC(gms, pgc, depth + 1)
+        ppgc: list[pGC] = select_pGC(gms, [pgc], depth + 1)
         wrapped_ppgc_callable = create_callable(ppgc, gms.pool)
         result = wrapped_ppgc_callable((pgc,))
         if result is None:
@@ -1174,13 +1187,13 @@ def evolve_physical(gms: gene_pool, pgc: pGC, depth: int) -> bool:
 
         if offspring is not None:
             if _LOG_DEBUG:
-                assert isinstance(offspring, _gGC)
+                assert isinstance(offspring, xGC)
             pGC_inherit(offspring, pgc, ppgc)
         return True
     return False
 
 
-def select_pGC(gp: gene_pool_cache, xgc_refs: Iterable[int], depth: int = 0) -> list[_gGC]:
+def select_pGC(gms: gene_pool, xgc_refs: Iterable[int], depth: int = 0) -> list[pGC]:
     """Select a pgc to evolve xgc.
 
     A pGC is selected to act on each xGC.
@@ -1210,13 +1223,13 @@ def select_pGC(gp: gene_pool_cache, xgc_refs: Iterable[int], depth: int = 0) -> 
     negative_category_weight = 1
     matched_pgcs = []
     for xgc_ref in xgc_refs:
-        xgc = gp[xgc_ref]
+        xgc = gms[xgc_ref]
 
         # Intergenerational pGC selection
         next_pgc_ref = xgc['next_pgc_ref']
         if next_pgc_ref is not None:
             xgc['next_pgc_ref'] = None
-            matched_pgcs.append(gp.pool[next_pgc_ref])
+            matched_pgcs.append(gms.pool[next_pgc_ref])
         else:
             # Selection category selection
             effective_category_weight = 0 if xgc['effective_pgc_refs'] is None else 4
@@ -1232,7 +1245,7 @@ def select_pGC(gp: gene_pool_cache, xgc_refs: Iterable[int], depth: int = 0) -> 
                     # NOTE: *_weights have no bias so the probability of a pGC with fitness
                     # 0.501 being selected relative to a pGC of fitness 0.600 is 1% - that make sense
                     # at the time of writing.
-                    all_pgcs = tuple(gc for gc in gp.pool.values() if is_pgc(gc))
+                    all_pgcs = tuple(gc for gc in gms.pool.values() if is_pgc(gc))
                     if _LOG_DEBUG:
                         assert all_pgcs, 'There are no viable pGCs in the GP!'
                         _logger.debug(f'{len(all_pgcs)} pGCs in the local GP cache.')
@@ -1287,7 +1300,7 @@ def select_pGC(gp: gene_pool_cache, xgc_refs: Iterable[int], depth: int = 0) -> 
             else:  # Category == 0
                 fitness = array(xgc['effective_pgc_fitness'], dtype=float32)
                 normalised_weights = fitness / fitness.sum()
-                matched_pgcs.append(gp[weighted_choice(xgc['effective_pgc_refs'], p=normalised_weights)])
+                matched_pgcs.append(gms[weighted_choice(xgc['effective_pgc_refs'], p=normalised_weights)])
 
     return matched_pgcs
 

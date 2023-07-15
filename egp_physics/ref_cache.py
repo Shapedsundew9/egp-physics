@@ -45,7 +45,8 @@ MAX_NUM_CACHE_STORES = 128
 HISTORY_DEPTH = 49  # FYI: 64 bit float mantissa = 52 bits.
 HISTORY_MSB = HISTORY_DEPTH - 1
 CACHE_ENTRY_LIMIT: int = 2 ** 13
-assert CACHE_ENTRY_LIMIT * (2 ** (HISTORY_DEPTH + 1) - 1) > 2 ** 63 - 1, 'Risk of probability normalisation denominator overflowing.'
+_CACHES: dict[int, tuple[NDArray[int64], NDArray[int64], dict[int64, int], dict[bool, int]]] = {}
+assert CACHE_ENTRY_LIMIT * (2 ** HISTORY_DEPTH - 1) < 2 ** 63 - 1, 'Risk of probability normalisation denominator overflowing.'
 
 
 def _ref_cache_store_generator() -> Generator[tuple[NDArray[int64], NDArray[int64], dict[int64, int], dict[bool, int]], None, None]:
@@ -55,7 +56,6 @@ def _ref_cache_store_generator() -> Generator[tuple[NDArray[int64], NDArray[int6
 
 
 _RCSG: Generator[tuple[NDArray[int64], NDArray[int64], dict[int64, int], dict[bool, int]], None, None] = _ref_cache_store_generator()
-@lru_cache(MAX_NUM_CACHE_STORES)
 def get_cache(uid: int) -> tuple[NDArray[int64], NDArray[int64], dict[int64, int], dict[bool, int]]:
     """Creates a new reference cache store.
     
@@ -66,18 +66,26 @@ def get_cache(uid: int) -> tuple[NDArray[int64], NDArray[int64], dict[int64, int
     (Hit history, ref, ref to idx dict)
     """
     _logger.info(f'Reference cache store UID: {uid} created.')
-    return next(_RCSG)
+    if uid not in _CACHES:
+        assert len(_CACHES) < MAX_NUM_CACHE_STORES, "Reference cache limit has been reached."
+        _CACHES[uid] = next(_RCSG)
+    return _CACHES[uid]
+
+
+# Alias
+create_cache = get_cache
 
 
 def update_cache(uid: int, ref: int64, hit: bool) -> None:
     """Update cache 'uid' with a hit (or miss) for ref."""
     history, refs, idx_dict, stats = get_cache(uid)
     if (idx := idx_dict.get(ref)) is not None:
-        history[idx] = int(hit) << HISTORY_MSB + (history[idx] >> 1)
+        history[idx] = (int(hit) << HISTORY_MSB) + (history[idx] >> 1)
     elif len(idx_dict) < CACHE_ENTRY_LIMIT:
         new_idx: int = len(idx_dict)
         idx_dict[ref] = new_idx 
         history[new_idx] = int(hit) << HISTORY_MSB
+        refs[new_idx] = ref
     else:
         victims: NDArray[int64] = refs[where(history == 0)]
         victim: int64 = choice(victims) if len(victims) else refs[argmin(history)]
@@ -94,15 +102,15 @@ def select_from_cache(uid: int) -> int64 | None:
     return np_choice(refs, p = history / history_sum) if history_sum else None
 
 
-def cache_metrics(uid: int) -> tuple[NDArray[int64], int, int]:
+def cache_metrics(uid: int) -> tuple[NDArray[int64], NDArray[int64], int, int]:
     """Get some statistics about the cache.
     
     Returns
     -------
-    (Current histories, Total number of hits ever, Total number of misses ever)
+    (Current histories, References, Total number of hits ever, Total number of misses ever)
     """
-    history, refs, idx_dict, stats = get_cache(uid)
-    return history[list(idx_dict.values())], stats[True], stats[False]
+    history, refs, _, stats = get_cache(uid)
+    return history, refs, stats[True], stats[False]
 
 
 def invalidate_cache(uid: int) -> None:
@@ -114,3 +122,9 @@ def invalidate_cache(uid: int) -> None:
     idx_dict.clear()
     stats[True] = 0
     stats[False] = 0
+
+
+def invalidate_all_caches() -> None:
+    """Invalidate all caches."""
+    for uid in range(MAX_NUM_CACHE_STORES):
+        invalidate_cache(uid)
