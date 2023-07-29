@@ -1196,6 +1196,12 @@ def evolve_physical(gms: gene_pool, pgc: pGC, depth: int) -> bool:
 def select_pGC(gms: gene_pool, xgc_refs: Iterable[int], depth: int = 0) -> list[pGC]:
     """Select a pgc to evolve xgc.
 
+    The Gene Pool Cache is refreshed on a periodic basis by the expiry of the sub-process
+    and a write back to the Gene Pool. At this point at least some pGC's that are not direct decendants
+    of this Gene Pool Cache will be bought in.
+
+    Selection moves 
+
     A pGC is selected to act on each xGC.
 
     pGC selection is achieved as follows:
