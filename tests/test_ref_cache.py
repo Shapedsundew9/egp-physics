@@ -1,6 +1,6 @@
 """Tests for the reference cache implementation"""
 import pytest
-from egp_physics.ref_cache import update_cache, select_from_cache, cache_metrics, invalidate_cache, create_cache, get_cache, invalidate_all_caches
+from egp_physics.ref_cache import global_ref_cache_store, ref_cache
 from egp_physics.ref_cache import HISTORY_MSB, CACHE_ENTRY_LIMIT
 from numpy.random import randint, shuffle
 from numpy.random import choice as np_choice
@@ -60,80 +60,87 @@ STATS: dict[int64 | int, dict[Literal['min', 'max'], int]] = {
 
 
 def test_create_cache() -> None:
+    """Simple instanciation. Should just have the pass-through entry."""
+    global_ref_cache_store.invalidate_all_caches()
+    cache: ref_cache = global_ref_cache_store[1]
+    assert cache._history[0] == 1 << HISTORY_MSB
+    assert cache._refs[0] == 0
+    assert cache.stats[True] == 1
+    assert cache.stats[False] == 0
+
+
+def test_single_update() -> None:
     """Simple instanciation"""
-    invalidate_all_caches()
-    create_cache(1)
-    update_cache(1, int64(1), True)
-    history, refs, hits, misses = cache_metrics(1)
-    assert history[0] == 1 << HISTORY_MSB
-    assert refs[0] == 1
-    assert hits == 1
-    assert misses == 0
+    global_ref_cache_store.invalidate_all_caches()
+    cache: ref_cache = global_ref_cache_store[1]
+    cache[int64(1)] = True
+    assert cache._history[0] == 1 << HISTORY_MSB
+    assert cache._history[1] == 1 << HISTORY_MSB
+    assert cache._refs[0] == 0
+    assert cache._refs[1] == 1
+    assert cache.stats[True] == 2
+    assert cache.stats[False] == 0
 
 
 def test_multiple_updates() -> None:
     """Check that the cache is updated correctly when the same reference is updated multiple times."""
-    invalidate_all_caches()
-    create_cache(1)
-    update_cache(1, int64(1), True)
-    update_cache(1, int64(1), False)
-    history, refs, hits, misses = cache_metrics(1)
-    assert history[0] == 1 << (HISTORY_MSB - 1)
-    assert refs[0] == 1
-    assert hits == 1
-    assert misses == 1
+    global_ref_cache_store.invalidate_all_caches()
+    cache: ref_cache = global_ref_cache_store[1]
+    cache[int64(1)] = True
+    cache[int64(1)] = False
+    assert cache._history[0] == 1 << HISTORY_MSB
+    assert cache._refs[0] == 0
+    assert cache._refs[1] == 1
+    assert cache.stats[True] == 2
+    assert cache.stats[False] == 1
 
 
 @pytest.mark.parametrize("case", range(128))
 def test_new_updates(case: int) -> None:
     "Generate a random number of hits & misses and check the cache statistics."
     if not case:
-        invalidate_all_caches()
-    create_cache(case)
+        global_ref_cache_store.invalidate_all_caches()
+    cache: ref_cache = global_ref_cache_store[case]
     size: int = randint(CACHE_ENTRY_LIMIT)
     for ref in arange(1, size + 1, dtype=int64):
-        update_cache(case, ref, bool(randint(2)))
-    history, refs, hits, misses = cache_metrics(case)
-    assert (refs != 0).sum() == size
-    assert hits + misses == size
-    assert hits == (history > 0).sum()
-    assert misses == logical_and(history == 0, refs != 0).sum()
+        cache[ref] =  bool(randint(2))
+    assert (cache._refs != 0).sum() == size
+    assert cache.stats[True] + cache.stats[False] == size + 1
+    assert cache.stats[True] == (cache._history > 0).sum()
+    assert cache.stats[False] == logical_and(cache._history == 0, cache._refs != 0).sum()
 
 
 def test_histories() -> None:
     """Check that the cache is updated correctly when the same reference is updated multiple times."""
-    invalidate_all_caches()
-    create_cache(1)
+    global_ref_cache_store.invalidate_all_caches()
+    cache: ref_cache = global_ref_cache_store[1]
     for _ in range(HISTORY_MSB + 1):
-        refs: NDArray[int64] = arange(1, CACHE_ENTRY_LIMIT + 1, dtype=int64)
+        refs: NDArray[int64] = arange(1, CACHE_ENTRY_LIMIT, dtype=int64)
         shuffle(refs)
         for ref in refs:
-            update_cache(1, ref, bool(randint(2)))
-    history, refs, hits, misses = cache_metrics(1)
-    assert unpackbits(history.view('uint8')).sum() == hits
-    assert hits + misses == CACHE_ENTRY_LIMIT * (HISTORY_MSB + 1)
+            cache[ref] = bool(randint(2))
+    assert unpackbits(cache._history.view('uint8')).sum() == cache.stats[True]
+    assert cache.stats[True] + cache.stats[False] == (CACHE_ENTRY_LIMIT - 1) * (HISTORY_MSB + 1) + 1
 
 
 def test_history_overflow() -> None:
     """Check that the cache is updated correctly when the same reference is updated multiple times."""
-    invalidate_all_caches()
-    create_cache(1)
-    loop_data = {
+    global_ref_cache_store.invalidate_all_caches()
+    cache: ref_cache = global_ref_cache_store[1]
+    loop_data: dict[int, list[int]] = {
         0: [0, 0],
         1: [0, 0]
     }
-    for loop, data in loop_data.items():
+    for data in loop_data.values():
         for _ in range(HISTORY_MSB + 1):
-            refs: NDArray[int64] = arange(1, CACHE_ENTRY_LIMIT + 1, dtype=int64)
+            refs: NDArray[int64] = arange(1, CACHE_ENTRY_LIMIT, dtype=int64)
             shuffle(refs)
             for ref in refs:
-                update_cache(1, ref, bool(randint(2)))
-        history, _, hits, __ = cache_metrics(1)
-        data[0] = unpackbits(history.view('uint8')).sum()
-        data[1] = CACHE_ENTRY_LIMIT * (HISTORY_MSB + 1) - data[0]
-    _, __, hits, misses = cache_metrics(1)
-    assert loop_data[1][0] + loop_data[0][0] == hits
-    assert loop_data[1][1] + loop_data[0][1] == misses
+                cache[ref] = bool(randint(2))
+        data[0] = unpackbits(cache._history.view('uint8')).sum()
+        data[1] = (CACHE_ENTRY_LIMIT - 1) * (HISTORY_MSB + 1) - data[0] + 1
+    assert loop_data[1][0] + loop_data[0][0] - 1 == cache.stats[True]
+    assert loop_data[1][1] + loop_data[0][1] == cache.stats[False]
 
 
 def test_select_from_cache() -> None:
@@ -154,13 +161,13 @@ def test_select_from_cache() -> None:
     ref: 7 history: 0b01111111
     ref: 8 history: 0b11111111
     """
-    invalidate_all_caches()
-    create_cache(1)
+    global_ref_cache_store.invalidate_all_caches()
+    cache: ref_cache = global_ref_cache_store[1]
     for ref in arange(0, HISTORY_MSB + 1, dtype=int64):
         for update in arange(0, HISTORY_MSB + 1, dtype=int64):
-            update_cache(1, ref, update < ref)
+            cache[ref] = update < ref
     for flag in range(2):
-        for ref, count in Counter((select_from_cache(1) for _ in range(2**17))).items():
+        for ref, count in Counter((cache.select() for _ in range(2**17))).items():
             if count < STATS.get(ref, {'min': 0})['min'] or count > STATS.get(ref, {'max': 0})['max']:  # type: ignore
                 assert not flag, '1 in 2**16 chance of being out of bounds occurred twice in a row...more than suspicious.'
                 break

@@ -20,9 +20,11 @@ from egp_types.aGC import aGC
 from egp_types.dGC import dGC
 from egp_types.egp_typing import Row, VALID_ROW_SOURCES
 
-from numpy import array, float32, isfinite
+from numpy import array, float32, isfinite, int64
 from numpy.random import choice as weighted_choice
 from .egp_typing import WorkStack, Work, NewGCDef, InsertRow
+from .ref_cache import global_ref_cache_store, ref_cache
+
 
 _logger: Logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
@@ -79,6 +81,8 @@ _NUM_MATCH_TYPES: int = len(_MATCH_TYPES_SQL)
 RANDOM_PGC_SIGNATURE: bytes = b'\x00' * 32
 _PGC_PARENTAL_PROTECTION_FACTOR: float = 0.75
 _POPULATION_PARENTAL_PROTECTION_FACTOR: float = 0.75
+_PGC_REF_CACHE_UID: int = 0
+_XGC_REF_CACHE_UID: int = 1
 
 
 def default_dict_gc(ref: Callable[[], int]) -> dGC:
@@ -1193,122 +1197,30 @@ def evolve_physical(gms: gene_pool, pgc: pGC, depth: int) -> bool:
     return False
 
 
-def select_pGC(gms: gene_pool, xgc_refs: Iterable[int], depth: int = 0) -> list[pGC]:
+def select_pGC(gms: gene_pool, xgcs: Iterable[xGC], depth: int = 0) -> list[pGC]:
     """Select a pgc to evolve xgc.
 
     The Gene Pool Cache is refreshed on a periodic basis by the expiry of the sub-process
     and a write back to the Gene Pool. At this point at least some pGC's that are not direct decendants
     of this Gene Pool Cache will be bought in.
 
-    Selection moves 
-
     A pGC is selected to act on each xGC.
 
-    pGC selection is achieved as follows:
-
-    If xgc['next_pgc_ref'] is set then that is the pGC used else
-    a choice is made from effective_pgc_refs, pGC's with positive
-    fitness (>0.5) and pGC's with negative fitness with relative
-    weights of 4, 2 and 1 respectively.
-    In the event that any of these categories has no
-    pGC's in the weight is reduced to 0.
-    NOTE: There can never be no pGC's in any category.
+    pGC selection makes use of temporal locality & fitness. The pGC's that have been used most recently and
+    are most successful have the highest probability of being selected.
 
     Args
     ----
     gp: The gene pool containing pgc.
     xgc_refs: Iterable of GC references to find a pGC for.
-    depth: The layer in the environment to find a pGC.
+    depth: The xGC layer for which to find a pGC. Used as the ref_cache() UID.
 
     Returns
     -------
     The pGCs to evolve xgcs.
     """
-    all_pgcs = positive_pgcs = negative_pgcs = None
-    positive_category_weight = 2
-    negative_category_weight = 1
-    matched_pgcs = []
-    for xgc_ref in xgc_refs:
-        xgc = gms[xgc_ref]
-
-        # Intergenerational pGC selection
-        next_pgc_ref = xgc['next_pgc_ref']
-        if next_pgc_ref is not None:
-            xgc['next_pgc_ref'] = None
-            matched_pgcs.append(gms.pool[next_pgc_ref])
-        else:
-            # Selection category selection
-            effective_category_weight = 0 if xgc['effective_pgc_refs'] is None else 4
-            _weights = (effective_category_weight, positive_category_weight, negative_category_weight)
-            category_weights = array(_weights, dtype=float32)
-            normalised_category_weights = category_weights / category_weights.sum()
-            category = weighted_choice(3, p=normalised_category_weights)
-
-            # Only do this once if it is needed as it is expensive
-            if category > 0:
-                if all_pgcs is None:
-                    # TODO: Need a better data structure
-                    # NOTE: *_weights have no bias so the probability of a pGC with fitness
-                    # 0.501 being selected relative to a pGC of fitness 0.600 is 1% - that make sense
-                    # at the time of writing.
-                    all_pgcs = tuple(gc for gc in gms.pool.values() if is_pgc(gc))
-                    if _LOG_DEBUG:
-                        assert all_pgcs, 'There are no viable pGCs in the GP!'
-                        _logger.debug(f'{len(all_pgcs)} pGCs in the local GP cache.')
-
-                # If we end up with a category 3 we have to loop otherwise we can break out
-                while True:
-                    # pGC's that have had a net positive affect on target fitness
-                    # Only do this once if it is needed as it is expensive
-                    if positive_pgcs is None and category == 1:
-                        positive_pgcs = tuple(gc for gc in all_pgcs if gc['pgc_fitness'][depth] > 0.5)
-                        redo = False
-                        if positive_pgcs:
-                            positive_weights = array([pgc['pgc_fitness'][depth] for pgc in positive_pgcs], dtype=float32) - 0.5
-                            positive_normalised_weights = positive_weights / positive_weights.sum()
-                        else:
-                            positive_category_weight = 0
-                            category = 2
-                        if _LOG_DEBUG:
-                            _logger.debug(f'{len(positive_pgcs)} positive pGCs in the local GP cache.')
-                            assert positive_pgcs and all(isfinite(positive_weights)), "Not all positive pGCs have a finite weight!"
-
-                    if category == 1:
-                        matched_pgcs.append(weighted_choice(positive_pgcs, p=positive_normalised_weights))
-                        break
-
-                    # pGC's that have had a net negative affect on target fitness
-                    # Only do this once if it is needed as it is expensive
-                    # Category must == 2 at this point
-                    if negative_pgcs is None:
-                        negative_pgcs = tuple(gc for gc in all_pgcs if gc['pgc_fitness'][depth] <= 0.5)
-                        if negative_pgcs:
-                            negative_weights = array([pgc['pgc_fitness'][depth] for pgc in negative_pgcs], dtype=float32)
-                            negative_normalised_weights = negative_weights / negative_weights.sum()
-                        else:
-                            negative_category_weight = 0
-                            category = 1
-                        if _LOG_DEBUG:
-                            _logger.debug(f'{len(negative_pgcs)} negative pGCs in the local GP cache.')
-                            assert negative_pgcs and all(isfinite(negative_weights)), "Not all negative pGCs have a finite weight!"
-
-                    if category == 2:
-                        matched_pgcs.append(weighted_choice(negative_pgcs, p=negative_normalised_weights))
-                        break
-
-                    # An effective category == 3 (would have broken out of the while loop before now if it wasn't)
-                    if _LOG_DEBUG:
-                        _logger.debug(f'Category 3 selection event.')
-                        assert category == 1, "In a category 3 event the next iteration must have category == 1!"
-                        assert positive_pgcs is None, "Category 3 pGC selection can only be reached from a first iteration category 2 selection!"
-                        assert not negative_pgcs, "Category 3 pGC selection can only be reached if there are no negative pGCs!"
-
-            else:  # Category == 0
-                fitness = array(xgc['effective_pgc_fitness'], dtype=float32)
-                normalised_weights = fitness / fitness.sum()
-                matched_pgcs.append(gms[weighted_choice(xgc['effective_pgc_refs'], p=normalised_weights)])
-
-    return matched_pgcs
+    pgc_cache: ref_cache = global_ref_cache_store[depth]
+    return [cast(pGC, gms.pool[ref]) if ref else gms.pool.random_pgc(depth) for ref in [pgc_cache.select() for _ in xgcs]]
 
 
 def pGC_inherit(child, parent, pgc):
