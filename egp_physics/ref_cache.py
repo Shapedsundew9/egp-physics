@@ -48,6 +48,10 @@ CACHE_ENTRY_LIMIT: int = 2 ** 13
 assert CACHE_ENTRY_LIMIT * (2 ** HISTORY_DEPTH - 1) < 2 ** 63 - 1, 'Risk of probability normalisation denominator overflowing.'
 
 
+# TODO: This is not a cache it is a history buffer. It is not used as a cache.
+# TODO: This should be a generic library function.
+#   An 8k entry 8 bit history is 64k uses...can then extend to 16 bit & 64 bit. Generic case
+#   is 2^N history bits per real bit in a 64 bit uint. Use a rounding buffer to manage the quantisation.
 class ref_cache():
 
     def __init__(self, uid: int) -> None:
@@ -60,7 +64,11 @@ class ref_cache():
         self.stats: dict[bool, NDArray[int32]] = {True: zeros((CACHE_ENTRY_LIMIT,), dtype=int32), False: zeros((CACHE_ENTRY_LIMIT,), dtype=int32)}
 
         # Seed the cache with a single entry representing a pass-through to GP.
-        self._set_pass_through()
+        # TODO: The probability of the pass through is set to be high relative to a few poorly performaning
+        # pGC's and low relative to a few well performing pGC's. This is to encourage the cache to be used but
+        # also pull through fresh pGC's when it is not.
+        self._idx_dict[int64(0)] = 0
+        self.fitness[0] = 1.0 / 128.0
         _logger.info(f'Reference cache store UID: {uid} created.')
 
     def __setitem__(self, ref: int64, hit: bool) -> None:
@@ -90,25 +98,10 @@ class ref_cache():
             # In the event of a miss on the first update the fitness is set to the inverse of the cache size.
             self.fitness[victim_idx] = 1.0 if hit else 1.0 / CACHE_ENTRY_LIMIT
 
-    def _set_pass_through(self) -> None:
-        """Set the pass through reference (0) history."""
-        self[int64(0)] = True
-
     def select(self) -> int64:
         """History weighted random selection from the cache"""
         history_sum: int64 = self._history.sum()
         return np_choice(self._refs, p = self._history / history_sum)
-
-    def invalidate(self) -> None:
-        """Invalidate all cache entries."""
-        # Must not destroy the containers though.
-        self._history.fill(0)
-        self._refs.fill(0)
-        self._idx_dict.clear()
-        self.stats[True] = 0
-        self.stats[False] = 0
-        self._set_pass_through()
-        _logger.info(f'Reference cache store UID: {self._uid} invalidated.')
 
 
 class ref_cache_store():
@@ -122,11 +115,6 @@ class ref_cache_store():
             assert len(self._caches) < MAX_NUM_CACHE_STORES, "Reference cache limit has been reached."
             self._caches[uid] = ref_cache(uid)
         return self._caches[uid]
-
-    def invalidate_all_caches(self) -> None:
-        """Invalidate all caches."""
-        for cache in self._caches.values():
-            cache.invalidate()
 
     def __delitem__(self, uid: int) -> None:
         """Delete a cache."""
