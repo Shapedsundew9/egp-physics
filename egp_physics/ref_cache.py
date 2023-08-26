@@ -28,7 +28,7 @@ If all references in the cache have 0 weight then the selection function returns
 """
 from functools import lru_cache
 from logging import Logger, NullHandler, getLogger, DEBUG
-from numpy import int64, int32, float32, zeros, where, argmin
+from numpy import int64, float64, zeros, where, argmin
 from numpy.typing import NDArray
 from typing import Generator
 from random import choice
@@ -52,26 +52,17 @@ assert CACHE_ENTRY_LIMIT * (2 ** HISTORY_DEPTH - 1) < 2 ** 63 - 1, 'Risk of prob
 # TODO: This should be a generic library function.
 #   An 8k entry 8 bit history is 64k uses...can then extend to 16 bit & 64 bit. Generic case
 #   is 2^N history bits per real bit in a 64 bit uint. Use a rounding buffer to manage the quantisation.
-class ref_cache():
+class binary_history_probability_table():
 
-    def __init__(self, uid: int) -> None:
+    def __init__(self, length: int = 8, size: int = 128) -> None:
         """Creates a new reference cache store."""
-        self._uid: int = uid
-        self.fitness: NDArray[float32] = zeros((CACHE_ENTRY_LIMIT,), dtype=float32) 
-        self._history: NDArray[int64] = zeros((CACHE_ENTRY_LIMIT,), dtype=int64)
-        self._refs: NDArray[int64] = zeros((CACHE_ENTRY_LIMIT,), dtype=int64)
-        self._idx_dict: dict[int64, int] = {}
-        self.stats: dict[bool, NDArray[int32]] = {True: zeros((CACHE_ENTRY_LIMIT,), dtype=int32), False: zeros((CACHE_ENTRY_LIMIT,), dtype=int32)}
+        if length < 1 or length > 62:
+            raise ValueError(f'History length must be between 1 and 62 inclusive.')
+        self._lsbs: int64 = int64((1 << (64 - length)) - 1)
+        self._probabilities: NDArray[float64] = zeros(size, dtype=float64) 
+        self._history: NDArray[int64] = zeros(size, dtype=int64)
 
-        # Seed the cache with a single entry representing a pass-through to GP.
-        # TODO: The probability of the pass through is set to be high relative to a few poorly performaning
-        # pGC's and low relative to a few well performing pGC's. This is to encourage the cache to be used but
-        # also pull through fresh pGC's when it is not.
-        self._idx_dict[int64(0)] = 0
-        self.fitness[0] = 1.0 / 128.0
-        _logger.info(f'Reference cache store UID: {uid} created.')
-
-    def __setitem__(self, ref: int64, hit: bool) -> None:
+    def __setitem__(self, index: int, hit: bool) -> None:
         """Update cache with a hit (or miss) for ref."""
         # TODO: power of 2 drop off may be to extreme, Consider implementing
         # a scheme where when history is updated the relative weight (in a new array)
