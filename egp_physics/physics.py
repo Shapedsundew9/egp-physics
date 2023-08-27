@@ -23,7 +23,7 @@ from egp_types.egp_typing import Row, VALID_ROW_SOURCES
 from numpy import array, float32, isfinite, int64
 from numpy.random import choice as weighted_choice
 from .egp_typing import WorkStack, Work, NewGCDef, InsertRow
-from .ref_cache import global_ref_cache_store, ref_cache
+from .binary_history_probability_table import global_ref_cache_store, ref_cache
 
 
 _logger: Logger = getLogger(__name__)
