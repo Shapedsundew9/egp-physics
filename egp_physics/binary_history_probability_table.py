@@ -1,7 +1,7 @@
 """Binary History Probability Table, BHPT."""
 
 from logging import Logger, NullHandler, getLogger, DEBUG
-from numpy import int8, int32, float64, zeros, argmin, array
+from numpy import int8, int32, float64, zeros, argmin, array, log2
 from numpy.typing import NDArray
 from numpy.random import choice as np_choice
 
@@ -13,7 +13,7 @@ _LOG_DEBUG: bool = _logger.isEnabledFor(DEBUG)
 
 class binary_history_probability_table():
 
-    def __init__(self, size: int = 128, h_length: int = 64, c_length: int = 64, mwsp = 63, defer: bool = False) -> None:
+    def __init__(self, size: int = 128, h_length: int = 64, c_length: int = 64, mwsp: bool = False, defer: bool = False) -> None:
         """Creates a Binary History Probability Table, BHPT.
 
         See [Binary History Probability Table](../docs/binary_history_probability_table.md) for more details.
@@ -35,11 +35,11 @@ class binary_history_probability_table():
             raise ValueError("Consideration length (c_length or N) must be > 0.")
         if c_length > h_length:
             raise ValueError("Consideration length (c_length or N) must be <= history length (h_length or L).")
-        if mwsp > c_length - 1:
-            raise ValueError("Minimal weight state position (mwsp) must be <= consideration length (c_length or N) - 1.")
-        self.h_length: int = h_length
-        self.c_length: int = c_length
-        self.mwsp: int = mwsp
+        if int(log2(size) + c_length * 2 / 3) + 1 > 56:
+            _logger.warning("BHPT size * consideration length may exceed 2**56-1 reducing or eliminating the influence of the oldest states.") 
+        self._h_length: int = h_length
+        self._c_length: int = c_length
+        self._mwsp: bool = mwsp
         self._h_table: NDArray[int8] = zeros((size, h_length), dtype=int8)
         self._weights: NDArray[float64] = zeros(size, dtype=float64)
         self._valid: NDArray[int8] = zeros(size, dtype=int8)
@@ -50,8 +50,8 @@ class binary_history_probability_table():
 
     def __repr__(self) -> str:
         """Returns the string representation of the BHPT."""
-        return f"binary_history_probability_table(size={self._h_table.shape[0]}, h_length={self.h_length}," + \
-            f"c_length={self.c_length}, mwsp={self.mwsp}, defer={self._defer})"
+        return f"binary_history_probability_table(size={self._h_table.shape[0]}, h_length={self._h_length}," + \
+            f"c_length={self._c_length}, mwsp={self._mwsp}, defer={self._defer})"
     
     def __getitem__(self, index: int) -> NDArray[int8]:
         """Returns the history at the given index."""
@@ -64,25 +64,22 @@ class binary_history_probability_table():
         self._h_table[index][0] = int8(state)
         self._modified = True
         if not self._defer:
-            c_table_index: NDArray[int8] = self._h_table[index][:self.c_length]
-            if self.mwsp >= 0:
-                c_table_index[self.mwsp] = 1
+            c_table_index: NDArray[int8] = self._h_table[index][:self._c_length]
+            if self._mwsp:
+                c_table_index[self._c_length - 1] = 1
             self._weights[index] = (self._state_weights * c_table_index).sum()
 
     def _default_state_weights(self) -> NDArray[float64]:
         """Returns the default state weights."""
-        return array([2**(3 * n / 2) for n in range(self.c_length)], dtype=float64)
+        return array([2**(2 * n / 3) for n in range(self._c_length)], dtype=float64)
     
     def _update_probabilities(self) -> None:
         """Updates the probabilities based on the current state of the BHPT."""
         if self._defer:
-            c_table: NDArray[int8] = self._h_table[:, :self.c_length]
-            if self.mwsp >= 0:
-                c_table[::][self.mwsp] = self._valid
+            c_table: NDArray[int8] = self._h_table[:, :self._c_length]
+            if self._mwsp:
+                c_table[::][self._c_length - 1] = self._valid
             self._weights = (self._state_weights * c_table).sum(axis=1)
-        if self._weights.sum() == 0:
-            _logger.warning("BHPT weights sum to 0. Returning 0 index.")
-            return 0
         self._probabilities = self._weights / self._weights.sum()
 
     def get(self) -> int:
@@ -129,16 +126,9 @@ class binary_history_probability_table():
         self._h_table[index] = 0
         self._modified = True
 
-    def set_mwsp(self, index: int) -> None:
-        """Sets the minimal weight state position (mwsp) to the given index.
-        
-        Args
-        ----
-        index: The index of the minimal weight state position (mwsp). Set to < 0 to disable.
-        """
-        if index >= self.c_length:
-            raise ValueError("Minimal weight state position (mwsp) must be < context length (c_length or N).")
-        self.mwsp = index
+    def set_mwsp(self, mwsp: bool) -> None:
+        """Sets the minimal weight state position (mwsp) to the given index."""
+        self._mwsp = mwsp
         self._modified = True
 
     def set_defer(self, defer: bool) -> None:

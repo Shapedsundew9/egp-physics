@@ -62,12 +62,16 @@ index make it valid.
 ## Minimal Weight State Position
 
 If a 0.0 probability is not desirable even for entries that would have all 0 consideration histories the minimal
-weight state position may be set, __0 <= mwsp < N__. When the weight of an entry is calculated the state in position
-__mwsp__ is treated as True regardless of its actual value. Typical use for this parameter is to set it to N-1 resulting
-in random selection if all histories are 0. __mwsp__ may be set or disabled (by setting it to a negative value)
-at any time.
+weight state position may be set, __mwsp = True__. When the weight of an entry is calculated the state in the last
+consideration position is treated as True regardless of its actual value resulting
+in random selection if all histories are 0. __mwsp__ may be set or cleared at any time.
 
-In the event __mwsp__ is disabled 
+## Precision
+
+Using the default weight and probability functions if log2(I) + log2(2N/3) > 56 the smallest weights (oldest states
+in the consideration history) may have no influence due to the maximum precision that can be held in a 64 bit
+float. The results will still be accurate to 64 bit float precision but there will be needless calculation and
+storage (if N == L).
 
 ## Defering Weight Calculations
 
