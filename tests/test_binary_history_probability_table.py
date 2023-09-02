@@ -1,8 +1,15 @@
 """Tests for the reference cache implementation"""
 import pytest
-from numpy import array, int32, zeros, float64, histogram, arange
+from numpy import array, int32, zeros, float64, histogram, arange, int8
 from numpy.typing import NDArray
 from egp_physics.binary_history_probability_table import binary_history_probability_table as bhpt
+from matplotlib.pyplot import plot, show
+from logging import Logger, NullHandler, getLogger, DEBUG
+
+
+_logger: Logger = getLogger(__name__)
+_logger.addHandler(NullHandler())
+_LOG_DEBUG: bool = _logger.isEnabledFor(DEBUG)
 
 
 # Correct default state weights for a 56 bit consideration length
@@ -44,8 +51,9 @@ def test_bhpt_repr() -> None:
     assert repr(bhpt(128, 64, 64, True)) == "binary_history_probability_table(size=128, h_length=64,c_length=64, mwsp=True, defer=False)"
     assert repr(bhpt(12, 6, 6, False, True)) == "binary_history_probability_table(size=12, h_length=6,c_length=6, mwsp=False, defer=True)"
 
-@pytest.mark.parametrize('defer', (False, True))
-def test_bhpt_stats(defer) -> None:
+
+@pytest.mark.parametrize('defer, bulk', ((False, False), (False, True), (True, False), (True, True)))
+def test_bhpt_stats(defer, bulk) -> None:
     """Tests the BHPT default statistics using an 8 state buffer.
     
     1. Create a BHPT with 256 entries and a history length of 8. The consideration length is also 8.
@@ -54,20 +62,28 @@ def test_bhpt_stats(defer) -> None:
     4. Defer should make no difference.
     """
     test_bhpt = bhpt(256, 8, 8, False, defer)
-    for i in range(256):
-        for s in f'{i:08b}':
-            test_bhpt[i] = s == '1'
+    if bulk:
+        for i in range(256):
+            test_bhpt[i] = array([s == '1' for s in f'{i:08b}'], dtype=int8)
+    else:
+        for i in range(256):
+            for s in f'{i:08b}':
+                test_bhpt[i] = s == '1'
 
     # Check the probabilities
     frequencies: NDArray[int32] = zeros(256, dtype=int32)
     frequencies, _ = histogram(test_bhpt.get_many(2**23), bins=arange(257))
     weights: NDArray[float64] = frequencies / frequencies.max()
-    print(weights)
-    print(test_bhpt._default_state_weights())
     expected_frequencies = (test_bhpt._h_table * test_bhpt._default_state_weights()).sum(axis=1)
     expected_weights: NDArray[float64] = expected_frequencies / expected_frequencies.max()
-    print(weights / expected_weights)
+    ratio = weights[1:] / expected_weights[1:]
     # plot
+    if _LOG_DEBUG:
+        _logger.debug(f"Ratio of selection frequency to default probability weights:\n{ratio}")
+        # plot(weights)
+        # plot(expected_weights)
+        # show()
+    assert weights[0] == 0.0 and (ratio > 0.9).all() and (ratio < 1.1).all()
 
 
 def test_bhpt_default_state_weights() -> None:

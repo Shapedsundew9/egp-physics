@@ -4,11 +4,17 @@ from logging import Logger, NullHandler, getLogger, DEBUG
 from numpy import int8, int32, float64, zeros, argmin, array, log2
 from numpy.typing import NDArray
 from numpy.random import choice as np_choice
+from typing import Iterable
 
 
 _logger: Logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
 _LOG_DEBUG: bool = _logger.isEnabledFor(DEBUG)
+
+
+def default_state_weights(length: int) -> NDArray[float64]:
+    """Returns the default state weights for a length of length."""
+    return array([2**i for i in range(length)], dtype=float64)
 
 
 class binary_history_probability_table():
@@ -57,11 +63,24 @@ class binary_history_probability_table():
         """Returns the history at the given index."""
         return self._h_table[index]
     
-    def __setitem__(self, index: int, state: bool) -> None:
-        """Sets the history at the given index."""
-        self._valid[index] = 1
-        self._h_table[index][1:] = self._h_table[index][0:-1]
-        self._h_table[index][0] = int8(state)
+    def __setitem__(self, index: int, state: bool | list[int | bool] | NDArray[int8]) -> None:
+        """Sets the most recent state history at the given index.
+        
+        If state is a list or NDArray, the most recent state is the last element in the list.
+        """
+        if isinstance(state, bool):
+            self._valid[index] = 1
+            self._h_table[index][1:] = self._h_table[index][0:-1]
+            self._h_table[index][0] = int8(state)
+        else:
+            if isinstance(state, list):
+                state = array(state, dtype=int8)
+            if state.shape[0] > self._h_length:
+                state = state[-self._h_length:]
+            if not len(state):
+                return # Nothing to do
+            self._valid[index] = 1
+            self._h_table[index][self._h_length - state.shape[0]:] = state[::-1]
         self._modified = True
         if not self._defer:
             c_table_index: NDArray[int8] = self._h_table[index][:self._c_length]
@@ -71,7 +90,7 @@ class binary_history_probability_table():
 
     def _default_state_weights(self) -> NDArray[float64]:
         """Returns the default state weights."""
-        return array([2**(2 * n / 3) for n in range(self._c_length)], dtype=float64)
+        return default_state_weights(self._c_length)
     
     def _update_probabilities(self) -> None:
         """Updates the probabilities based on the current state of the BHPT."""

@@ -40,7 +40,8 @@ selection __p<sub>e</sub>__ considering the __N__ most recent state values:
 > p<sub>e</sub> = w<sub>e</sub>/sum(w<sub>i</sub>) for i = 0  to I-1
 
 Where __n__ is the position, __s__ is the state value (1 or 0) and __I__ is the number of entries in the
-table.
+table. The chart below shows the default scheme in green compared to some other possible solutions.
+![Chart comparing some basic alternatives to the default weighting function.](default_weight_function.png)
 
 There are many more sophisticated methods of probability prediction that may be implemented as long as the
 requirement that a consideration history (N) of all 0's (all False) has a probability of 0.0.
@@ -48,7 +49,7 @@ requirement that a consideration history (N) of all 0's (all False) has a probab
 ## Entry Insertion
 
 Insertion of an entry into the table when __auto_remove == False__ requires that an index be free otherwise
-an ValueError is raised. __insert()__ returns the index to be used to set state for that entry and identify it
+a ValueError is raised. __insert()__ returns the index to be used to set state for that entry and identify it
 if it is selected by __get()__. When __auto_remove == True__ an empty index will be used if there is one
 otherwise the entry with the lowest weight will be removed
 and that index will be returned. In the event that multiple entries have the same lowest weight an entry from
@@ -82,7 +83,13 @@ the weights for all entries in bulk. In that case set __defer == True__. __defer
 at anytime.
 
 Note that probabilities are only ever calculated from weights if at least one history has changed. Thus calling
-__get()__ without doing any __\_\_setitem\_\___() inbetween  will not unecessarily calculate the probabilities.
+__get()__ without doing any __\_\_setitem\_\___() inbetween will not unecessarily calculate the probabilities.
+
+# Memory Usage
+
+Memory allocated is static from instanciation and is approximately I(L + 17) + 8L + 128 bytes e.g. a 2<sup>16</sup> entry
+buffer with a history length of 64 bit would consume approximately 2<sup>16</sup>(64 + 17) + 8 * 64 + 128 = 5309056 bytes
+which is ~5 MBytes.
 
 # Usage
 

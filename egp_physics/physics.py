@@ -5,6 +5,8 @@ from logging import DEBUG, Logger, NullHandler, getLogger
 from pprint import pformat
 from random import randint
 from typing import Literal, LiteralString, Callable, cast
+from numpy import int8, zeros
+from numpy.typing import NDArray
 
 from egp_execution.execution import create_callable
 from egp_stores.gene_pool_cache import gene_pool_cache
@@ -23,7 +25,7 @@ from egp_types.egp_typing import Row, VALID_ROW_SOURCES
 from numpy import array, float32, isfinite, int64
 from numpy.random import choice as weighted_choice
 from .egp_typing import WorkStack, Work, NewGCDef, InsertRow
-from .binary_history_probability_table import global_ref_cache_store, ref_cache
+from .pgc_bhpt import pgc_bhpt
 
 
 _logger: Logger = getLogger(__name__)
@@ -83,6 +85,23 @@ _PGC_PARENTAL_PROTECTION_FACTOR: float = 0.75
 _POPULATION_PARENTAL_PROTECTION_FACTOR: float = 0.75
 _PGC_REF_CACHE_UID: int = 0
 _XGC_REF_CACHE_UID: int = 1
+
+
+# Binary History Probability Table setup for pGC selection
+# Each pGC layer has its own BHPT. The next deeper layer tends quickly
+# toward being called * times less than the previous so having a large
+# number of entries is not useful.
+_BHPT_H_LENGTH: int = 64
+_BHPT_C_LENGTH: int = 64
+_BHPT_MWSP: bool = True
+_BHPT_DEFER: bool = False
+_PGC_BHPTS: list[pgc_bhpt] = []
+
+# Entry 0 represents the Gene Pool Cache and has a fixed weight.
+_PGC_BHPT_GP_ENTRY_HISTORY: NDArray[int8] = zeros(_BHPT_C_LENGTH, dtype=int8)
+_PGC_BHPT_GP_ENTRY_HISTORY[_BHPT_C_LENGTH // 4:] = 1
+for pgc_bhpt in _PGC_BHPTS:
+    pgc_bhpt[0] = _PGC_BHPT_GP_ENTRY_HISTORY
 
 
 def default_dict_gc(ref: Callable[[], int]) -> dGC:
