@@ -1,20 +1,34 @@
 """Binary History Probability Table, BHPT."""
 
 from logging import Logger, NullHandler, getLogger, DEBUG
-from numpy import int8, int32, float64, zeros, argmin, array, log2
+from numpy import int8, int32, double, zeros, argmin, array, log2
 from numpy.typing import NDArray
 from numpy.random import choice as np_choice
-from typing import Iterable
 
 
 _logger: Logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
 _LOG_DEBUG: bool = _logger.isEnabledFor(DEBUG)
+_ONE = double(1.0)
 
 
-def default_state_weights(length: int) -> NDArray[float64]:
+def default_weight_function(position: int) -> double:
+    """Returns the default weight for the given history position."""
+    return double(2**(2*position/3))
+
+
+def default_state_weights(length: int) -> NDArray[double]:
     """Returns the default state weights for a length of length."""
-    return array([2**i for i in range(length)], dtype=float64)
+    return array([default_weight_function(i) for i in range(length)], dtype=double)
+
+
+def max_bits() -> int:
+    """Returns the consideration length at which precision starts to be lost."""
+    # FIXME: Need to verify this is correct
+    b = 0
+    while (_ONE + _ONE / default_weight_function(b)) != _ONE:
+        b += 1
+    return b
 
 
 class binary_history_probability_table():
@@ -47,10 +61,10 @@ class binary_history_probability_table():
         self._c_length: int = c_length
         self._mwsp: bool = mwsp
         self._h_table: NDArray[int8] = zeros((size, h_length), dtype=int8)
-        self._weights: NDArray[float64] = zeros(size, dtype=float64)
+        self._weights: NDArray[double] = zeros(size, dtype=double)
         self._valid: NDArray[int8] = zeros(size, dtype=int8)
-        self._state_weights: NDArray[float64] = self._default_state_weights()
-        self._probabilities: NDArray[float64] = zeros(size, dtype=float64)
+        self._state_weights: NDArray[double] = self._default_state_weights()
+        self._probabilities: NDArray[double] = zeros(size, dtype=double)
         self._defer: bool = defer
         self._modified: bool = True  # Forces calculation of probabilities on first get()
 
@@ -88,7 +102,7 @@ class binary_history_probability_table():
                 c_table_index[self._c_length - 1] = 1
             self._weights[index] = (self._state_weights * c_table_index).sum()
 
-    def _default_state_weights(self) -> NDArray[float64]:
+    def _default_state_weights(self) -> NDArray[double]:
         """Returns the default state weights."""
         return default_state_weights(self._c_length)
     

@@ -88,20 +88,8 @@ _XGC_REF_CACHE_UID: int = 1
 
 
 # Binary History Probability Table setup for pGC selection
-# Each pGC layer has its own BHPT. The next deeper layer tends quickly
-# toward being called * times less than the previous so having a large
-# number of entries is not useful.
-_BHPT_H_LENGTH: int = 64
-_BHPT_C_LENGTH: int = 64
-_BHPT_MWSP: bool = True
-_BHPT_DEFER: bool = False
-_PGC_BHPTS: list[pgc_bhpt] = []
-
-# Entry 0 represents the Gene Pool Cache and has a fixed weight.
-_PGC_BHPT_GP_ENTRY_HISTORY: NDArray[int8] = zeros(_BHPT_C_LENGTH, dtype=int8)
-_PGC_BHPT_GP_ENTRY_HISTORY[_BHPT_C_LENGTH // 4:] = 1
-for pgc_bhpt in _PGC_BHPTS:
-    pgc_bhpt[0] = _PGC_BHPT_GP_ENTRY_HISTORY
+# Each pGC layer has its own BHPT.
+_PGC_BHPT: list[pgc_bhpt] = []
 
 
 def default_dict_gc(ref: Callable[[], int]) -> dGC:
@@ -1238,8 +1226,26 @@ def select_pGC(gms: gene_pool, xgcs: Iterable[xGC], depth: int = 0) -> list[pGC]
     -------
     The pGCs to evolve xgcs.
     """
-    pgc_cache: ref_cache = global_ref_cache_store[depth]
-    return [cast(pGC, gms.pool[ref]) if ref else gms.pool.random_pgc(depth) for ref in [pgc_cache.select() for _ in xgcs]]
+    if not _PGC_BHPT:
+        _PGC_BHPT.extend((
+        pgc_bhpt(2**13, gms.pool, 0),
+        pgc_bhpt(2**13, gms.pool, 1),
+        pgc_bhpt(2**13, gms.pool, 2),
+        pgc_bhpt(2**13, gms.pool, 3),
+        pgc_bhpt(2**10, gms.pool, 4),
+        pgc_bhpt(2**10, gms.pool, 5),
+        pgc_bhpt(2**10, gms.pool, 6),
+        pgc_bhpt(2**10, gms.pool, 7),
+        pgc_bhpt(2**7, gms.pool, 8),
+        pgc_bhpt(2**7, gms.pool, 9),
+        pgc_bhpt(2**7, gms.pool, 10),
+        pgc_bhpt(2**7, gms.pool, 11),
+        pgc_bhpt(2**4, gms.pool, 12),
+        pgc_bhpt(2**4, gms.pool, 13),
+        pgc_bhpt(2**4, gms.pool, 14),
+        pgc_bhpt(2**4, gms.pool, 15)
+    ))
+    return [cast(pGC, gms.pool[ref]) for ref in [_PGC_BHPT[depth].get() for _ in xgcs]]
 
 
 def pGC_inherit(child, parent, pgc):

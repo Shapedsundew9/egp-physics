@@ -15,7 +15,22 @@ The class provides these methods:
 | set_mwsp()        | Set the Minimal Weight State Position                |
 | set_defer()       | Choose to defer weight calculations                  |
 
-## The Probability Function
+## Concept Overview
+
+A BHPT table has the following structure:
+
+| **Index** | **History** | **Weight** |
+|:---------:|:-----------:|:----------:|
+| 0         | 10001011101 |    26.675  |
+| 1         | 00110110001 |    22.082  |
+| 2         | 00000110001 |     9.176  |
+| ...       | ...         |    ...     |
+| I-1       | 11111101101 |    42.420  |
+
+Where history is the history of the binary variable represented by the row (entry) and **Weight = f(History)**.
+The probability of any row being selected is directly proportional to the **Weight**.
+
+## The Weight & Probability Functions
 
 Consider the history of a binary variable to be represented as below.
 
