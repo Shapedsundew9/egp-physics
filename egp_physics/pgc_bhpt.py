@@ -58,7 +58,6 @@ class pgc_bhpt(binary_history_probability_table):
         self._gpc: gene_pool_cache = gpc
         self._depth: int = depth
         self._refs: NDArray[int64] = zeros(size, dtype=int64)
-        self._ref_map_cache: dict[int64, int] = {}
         super()[0] = _PGC_BHPT_GP_ENTRY_HISTORY
 
     def __contains__(self, ref: int64) -> bool:
@@ -76,7 +75,8 @@ class pgc_bhpt(binary_history_probability_table):
     
     def __setitem__(self, ref: int64, state: bool) -> None:
         """Sets the pGC history in the BHPT."""
-        index: int = self._ref_map_cache[ref] if ref in self._ref_map_cache else where(self._refs == ref)[0][0]
+        # This is about the same speed as maintaining an LRU cache unless self._refs size >> 8k
+        index: int = where(self._refs == ref)[0][0]
         return super().__setitem__(index, state)
     
     def _add(self, pgc: pGC) -> int64:
@@ -92,14 +92,6 @@ class pgc_bhpt(binary_history_probability_table):
         """
         idx: int = self.insert()
         ref: int64 = pgc['ref']
-
-        # Purge the olde reference from the cache if it exists
-        old_ref: int64 = self._refs[idx]
-        if old_ref in self._ref_map_cache:
-            del self._ref_map_cache[old_ref]
-
-        # Add the new one as it is likely to be used in setitem() next
-        self._ref_map_cache[ref] = idx
         self._refs[idx] = ref
         super()[idx] = _PGC_FITNESS_MAPPING_TO_HISTORY[int(pgc['pgc_fitness'][self._depth] * 127)]
         return ref

@@ -1186,25 +1186,22 @@ def evolve_physical(gms: gene_pool, pgc: pGC, depth: int) -> bool:
     """
     if not (pgc['pgc_f_count'][depth] & M_MASK):
         pgc['pgc_delta_fitness'][depth] = 0.0
-        ppgc: list[pGC] = select_pGC(gms, [pgc], depth + 1)
+        ppgc: pGC = select_pGC(gms, pgc, depth + 1)
         wrapped_ppgc_callable = create_callable(ppgc, gms.pool)
         result = wrapped_ppgc_callable((pgc,))
         if result is None:
             # pGC went pop - should not happen very often
             _logger.warning(f"ppGC {ref_str(pgc['ref'])} threw an exception when called.")
-            offspring = None
-        else:
-            offspring = result[0]
-
-        if offspring is not None:
-            if _LOG_DEBUG:
-                assert isinstance(offspring, xGC)
-            pGC_inherit(offspring, pgc, ppgc)
+            return False
+        offspring = result[0]
+        if _LOG_DEBUG:
+            assert isinstance(offspring, xGC)
+        pGC_inherit(offspring, pgc, ppgc)
         return True
     return False
 
 
-def select_pGC(gms: gene_pool, xgcs: Iterable[xGC], depth: int = 0) -> list[pGC]:
+def select_pGC(gms: gene_pool, xgcs: xGC, depth: int = 0) -> pGC:
     """Select a pgc to evolve xgc.
 
     The Gene Pool Cache is refreshed on a periodic basis by the expiry of the sub-process
@@ -1245,17 +1242,17 @@ def select_pGC(gms: gene_pool, xgcs: Iterable[xGC], depth: int = 0) -> list[pGC]
         pgc_bhpt(2**4, gms.pool, 14),
         pgc_bhpt(2**4, gms.pool, 15)
     ))
-    return [cast(pGC, gms.pool[ref]) for ref in [_PGC_BHPT[depth].get() for _ in xgcs]]
+    return cast(pGC, gms.pool[_PGC_BHPT[depth].get()])
 
 
-def pGC_inherit(child, parent, pgc):
-    """Inherit PGC only properties from parent to child.
+def pGC_inherit(child, parent, pgc) -> None:
+    """Inherit pGC only properties from parent to child.
 
     child is modified.
     parent is modified.
 
     Parental protection works differently for a PGC than a population individual because a
-    PGC child must survive before being characterized where as a population child is
+    pGC child must survive before being characterized where as a population child is
     characterized immediately.
 
     Args
