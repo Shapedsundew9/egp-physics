@@ -14,7 +14,7 @@ _ONE = double(1.0)
 
 def default_weight_function(position: int) -> double:
     """Returns the default weight for the given history position."""
-    return double(2**(2*position/3))
+    return double(2 ** (2 * position / 3))
 
 
 def default_state_weights(length: int) -> NDArray[double]:
@@ -31,9 +31,15 @@ def max_bits() -> int:
     return b
 
 
-class binary_history_probability_table():
-
-    def __init__(self, size: int = 128, h_length: int = 64, c_length: int = 64, mwsp: bool = False, defer: bool = False) -> None:
+class binary_history_probability_table:
+    def __init__(
+        self,
+        size: int = 128,
+        h_length: int = 64,
+        c_length: int = 64,
+        mwsp: bool = False,
+        defer: bool = False,
+    ) -> None:
         """Creates a Binary History Probability Table, BHPT.
 
         See [Binary History Probability Table](../docs/binary_history_probability_table.md) for more details.
@@ -49,14 +55,18 @@ class binary_history_probability_table():
             raise ValueError("Size (size or I) must be > 0.")
         if h_length < 1:
             raise ValueError("History length (h_length or L) must be > 0.")
-        if h_length > 2**31-1:
+        if h_length > 2**31 - 1:
             raise ValueError("History length (h_length or L) must be <= 2**31-1.")
         if c_length < 1:
             raise ValueError("Consideration length (c_length or N) must be > 0.")
         if c_length > h_length:
-            raise ValueError("Consideration length (c_length or N) must be <= history length (h_length or L).")
+            raise ValueError(
+                "Consideration length (c_length or N) must be <= history length (h_length or L)."
+            )
         if int(log2(size) + c_length * 2 / 3) + 1 > 56:
-            _logger.warning("BHPT size * consideration length may exceed 2**56-1 reducing or eliminating the influence of the oldest states.") 
+            _logger.warning(
+                "BHPT size * consideration length may exceed 2**56-1 reducing or eliminating the influence of the oldest states."
+            )
         self._h_length: int = h_length
         self._c_length: int = c_length
         self._mwsp: bool = mwsp
@@ -66,20 +76,26 @@ class binary_history_probability_table():
         self._state_weights: NDArray[double] = self._default_state_weights()
         self._probabilities: NDArray[double] = zeros(size, dtype=double)
         self._defer: bool = defer
-        self._modified: bool = True  # Forces calculation of probabilities on first get()
+        self._modified: bool = (
+            True  # Forces calculation of probabilities on first get()
+        )
 
     def __repr__(self) -> str:
         """Returns the string representation of the BHPT."""
-        return f"binary_history_probability_table(size={self._h_table.shape[0]}, h_length={self._h_length}," + \
-            f"c_length={self._c_length}, mwsp={self._mwsp}, defer={self._defer})"
-    
+        return (
+            f"binary_history_probability_table(size={self._h_table.shape[0]}, h_length={self._h_length},"
+            + f"c_length={self._c_length}, mwsp={self._mwsp}, defer={self._defer})"
+        )
+
     def __getitem__(self, index: int) -> NDArray[int8]:
         """Returns the history at the given index."""
         return self._h_table[index]
-    
-    def __setitem__(self, index: int, state: bool | list[int | bool] | NDArray[int8]) -> None:
+
+    def __setitem__(
+        self, index: int, state: bool | list[int | bool] | NDArray[int8]
+    ) -> None:
         """Sets the most recent state history at the given index.
-        
+
         If state is a list or NDArray, the most recent state is the last element in the list.
         """
         if isinstance(state, bool):
@@ -90,14 +106,14 @@ class binary_history_probability_table():
             if isinstance(state, list):
                 state = array(state, dtype=int8)
             if state.shape[0] > self._h_length:
-                state = state[-self._h_length:]
+                state = state[-self._h_length :]
             if not len(state):
-                return # Nothing to do
+                return  # Nothing to do
             self._valid[index] = 1
-            self._h_table[index][self._h_length - state.shape[0]:] = state[::-1]
+            self._h_table[index][self._h_length - state.shape[0] :] = state[::-1]
         self._modified = True
         if not self._defer:
-            c_table_index: NDArray[int8] = self._h_table[index][:self._c_length]
+            c_table_index: NDArray[int8] = self._h_table[index][: self._c_length]
             if self._mwsp:
                 c_table_index[self._c_length - 1] = 1
             self._weights[index] = (self._state_weights * c_table_index).sum()
@@ -105,11 +121,11 @@ class binary_history_probability_table():
     def _default_state_weights(self) -> NDArray[double]:
         """Returns the default state weights."""
         return default_state_weights(self._c_length)
-    
+
     def _update_probabilities(self) -> None:
         """Updates the probabilities based on the current state of the BHPT."""
         if self._defer:
-            c_table: NDArray[int8] = self._h_table[:, :self._c_length]
+            c_table: NDArray[int8] = self._h_table[:, : self._c_length]
             if self._mwsp:
                 c_table[::][self._c_length - 1] = self._valid
             self._weights = (self._state_weights * c_table).sum(axis=1)
@@ -141,7 +157,7 @@ class binary_history_probability_table():
         -------
         The index of an empty entry in the BHPT.
         """
-        num_empty: int = self._h_table.shape[0] - self._valid.sum() 
+        num_empty: int = self._h_table.shape[0] - self._valid.sum()
         if num_empty > 0:
             index = int(argmin(self._valid))
             self._valid[index] = 1
@@ -151,7 +167,7 @@ class binary_history_probability_table():
             self.remove(index)
             return index
         raise ValueError("BHPT is full and auto_remove is False.")
-    
+
     def remove(self, index: int) -> None:
         """Removes the entry at the given index in the BHPT."""
         self._valid[index] = 0

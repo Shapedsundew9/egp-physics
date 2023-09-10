@@ -12,7 +12,10 @@ its history in the BHPT.
 
 from numpy import int8, where, double, zeros, int64
 from numpy.typing import NDArray
-from egp_physics.binary_history_probability_table import binary_history_probability_table, default_state_weights
+from egp_physics.binary_history_probability_table import (
+    binary_history_probability_table,
+    default_state_weights,
+)
 from egp_stores.gene_pool_cache import gene_pool_cache
 from egp_physics.pgc import pGC
 
@@ -26,10 +29,12 @@ _BHPT_C_LENGTH: int = 64
 _BHPT_MWSP: bool = True
 _BHPT_DEFER: bool = False
 _PGC_BHPT_GP_ENTRY_HISTORY: NDArray[int8] = zeros(_BHPT_C_LENGTH, dtype=int8)
-_PGC_BHPT_GP_ENTRY_HISTORY[_BHPT_C_LENGTH // 4:] = 1
+_PGC_BHPT_GP_ENTRY_HISTORY[_BHPT_C_LENGTH // 4 :] = 1
 _PGC_BHPT_WEIGHTS: NDArray[double] = default_state_weights(_BHPT_C_LENGTH)
 _PGC_BHPT_WEIGHTS_SUM: double = _PGC_BHPT_WEIGHTS.sum()
-_PGC_FITNESS_MAPPING_TO_HISTORY: NDArray[int8] = zeros((128, _BHPT_C_LENGTH), dtype=int8)
+_PGC_FITNESS_MAPPING_TO_HISTORY: NDArray[int8] = zeros(
+    (128, _BHPT_C_LENGTH), dtype=int8
+)
 
 
 # Create a look up table mapping pGC fitness to BHPT history (consideration length)
@@ -44,7 +49,6 @@ for i in range(128):
 
 
 class pgc_bhpt(binary_history_probability_table):
-
     def __init__(self, size: int, gpc: gene_pool_cache, depth: int) -> None:
         """Creates a pGC BHPT.
 
@@ -72,13 +76,13 @@ class pgc_bhpt(binary_history_probability_table):
         True if the GC reference is in the BHPT.
         """
         return ref in self._refs
-    
+
     def __setitem__(self, ref: int64, state: bool) -> None:
         """Sets the pGC history in the BHPT."""
         # This is about the same speed as maintaining an LRU cache unless self._refs size >> 8k
         index: int = where(self._refs == ref)[0][0]
         return super().__setitem__(index, state)
-    
+
     def _add(self, pgc: pGC) -> int64:
         """Adds a pGC to the BHPT.
 
@@ -91,9 +95,11 @@ class pgc_bhpt(binary_history_probability_table):
         The pgc reference.
         """
         idx: int = self.insert()
-        ref: int64 = pgc['ref']
+        ref: int64 = pgc["ref"]
         self._refs[idx] = ref
-        super()[idx] = _PGC_FITNESS_MAPPING_TO_HISTORY[int(pgc['pgc_fitness'][self._depth] * 127)]
+        super()[idx] = _PGC_FITNESS_MAPPING_TO_HISTORY[
+            int(pgc["pgc_fitness"][self._depth] * 127)
+        ]
         return ref
 
     def get(self) -> int64:
