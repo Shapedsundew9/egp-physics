@@ -17,7 +17,7 @@ from egp_physics.binary_history_probability_table import (
     default_state_weights,
 )
 from egp_stores.gene_pool_cache import gene_pool_cache
-from egp_physics.pgc import pGC
+from egp_types import pGC
 
 
 # Binary History Probability Table setup for pGC selection
