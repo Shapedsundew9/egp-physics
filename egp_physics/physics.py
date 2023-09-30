@@ -1,31 +1,29 @@
 """The operations that can be performed on a GC."""
-from collections.abc import Iterable
+from __future__ import annotations
 from copy import copy, deepcopy
 from logging import DEBUG, Logger, NullHandler, getLogger
 from pprint import pformat
 from random import randint
-from typing import Literal, LiteralString, Callable, cast
-from numpy import int8, zeros
-from numpy.typing import NDArray
+from typing import Literal, LiteralString, Callable, cast, TYPE_CHECKING
 
 from egp_execution.execution import create_callable
-from egp_stores.gene_pool_cache import gene_pool_cache
-from egp_stores.gene_pool import gene_pool
-from egp_types.eGC import eGC
 from egp_types.xGC import xGC, pGC, gGC
 from egp_types.ep_type import interface_definition, vtype
 from egp_types.gc_graph import DST_EP, SRC_EP, gc_graph
-from egp_types.gc_type_tools import M_MASK, NUM_PGC_LAYERS, is_pgc
+from egp_types.gc_type_tools import M_MASK, NUM_PGC_LAYERS
 from egp_types.internal_graph import internal_graph
 from egp_types.reference import ref_str
 from egp_types.aGC import aGC
 from egp_types.dGC import dGC
 from egp_types.egp_typing import Row, VALID_ROW_SOURCES
 
-from numpy import array, float32, isfinite, int64
-from numpy.random import choice as weighted_choice
 from .egp_typing import WorkStack, Work, NewGCDef, InsertRow
 from .pgc_bhpt import pgc_bhpt
+
+
+# Circular import & runtime import avoidance
+if TYPE_CHECKING:
+    from egp_stores.gene_pool import gene_pool
 
 
 _logger: Logger = getLogger(__name__)
