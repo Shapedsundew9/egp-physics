@@ -62,7 +62,7 @@ class pgc_bhpt(binary_history_probability_table):
         self._gpc: gene_pool_cache = gpc
         self._depth: int = depth
         self._refs: NDArray[int64] = zeros(size, dtype=int64)
-        super()[0] = _PGC_BHPT_GP_ENTRY_HISTORY
+        super().__setitem__(0, _PGC_BHPT_GP_ENTRY_HISTORY)
 
     def __contains__(self, ref: int64) -> bool:
         """Returns True if the pGC is in the BHPT.
@@ -97,9 +97,9 @@ class pgc_bhpt(binary_history_probability_table):
         idx: int = self.insert()
         ref: int64 = pgc["ref"]
         self._refs[idx] = ref
-        super()[idx] = _PGC_FITNESS_MAPPING_TO_HISTORY[
+        super().__setitem__(idx, _PGC_FITNESS_MAPPING_TO_HISTORY[
             int(pgc["pgc_fitness"][self._depth] * 127)
-        ]
+        ])
         return ref
 
     def get(self) -> int64:

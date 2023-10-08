@@ -7,15 +7,12 @@ FIXME: These operations need test cases using the full stack to prove TGC == RGC
 from collections import Counter
 from hashlib import md5
 from json import load, dump
-from logging import DEBUG, INFO, WARN, ERROR, FATAL, NullHandler, getLogger
+from logging import DEBUG, NullHandler, getLogger, Logger
 from os.path import dirname, join
 from pprint import pformat
 from random import choice, randint
 from statistics import stdev
 from copy import deepcopy
-
-from egp_physics.gc_graph import gc_graph
-from egp_physics.gc_type import eGC, mGC
 from egp_physics.physics import _insert_gc
 
 # Load the results file.
@@ -24,18 +21,14 @@ with open(join(dirname(__file__), "data/", _RESULTS_FILE), "r") as file_ptr:
     results = load(file_ptr)
 
 
-# Statitcis are based on this number of iterations
+# Statistics are based on this number of iterations
 STATS_N = 1000
 
 
 # Logging
-_logger = getLogger(__name__)
+_logger: Logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
-_LOG_DEBUG = _logger.isEnabledFor(DEBUG)
-_LOG_INFO = _logger.isEnabledFor(INFO)
-_LOG_WARN = _logger.isEnabledFor(WARN)
-_LOG_ERROR = _logger.isEnabledFor(ERROR)
-_LOG_FATAL = _logger.isEnabledFor(FATAL)
+_LOG_DEBUG: bool = _logger.isEnabledFor(DEBUG)
 
 
 # Set to True to generate test_physics_results.json
