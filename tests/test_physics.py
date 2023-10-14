@@ -13,7 +13,7 @@ from pprint import pformat
 from random import choice, randint
 from statistics import stdev
 from copy import deepcopy
-from egp_physics.physics import _insert_gc
+from egp_physics.fundamental import _insert_gc
 
 # Load the results file.
 _RESULTS_FILE = "test_physics_results.json"
