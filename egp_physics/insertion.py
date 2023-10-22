@@ -690,8 +690,6 @@ def gc_stack(gms: gene_pool, bottom_gc: aGC, top_gc: aGC, invert=False) -> xGC:
     return gms.pool[new_gc_definition[0]["ref"]]
 
 
-
-
 def interface_proximity_select(
     gms: gene_pool, xputs: dict[str, bytes | list | str]
 ) -> aGC:
