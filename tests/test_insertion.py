@@ -25,10 +25,12 @@ from random import choice
 from itertools import product
 import pytest
 from logging import DEBUG, INFO, NullHandler, getLogger, Logger
+from tqdm import tqdm
+from json import load, dump
 
 from egp_types.dGC import dGC
-from egp_types.egp_typing import Row
-from egp_types.gc_graph import gc_graph, random_gc_graph
+from egp_types.egp_typing import Row, connection_graph_to_json, JSONGraph
+from egp_types.gc_graph import gc_graph, random_gc_graph, SRC_EP, DST_EP
 from egp_types.xgc_validator import GRAPH_SCHEMA, base_validator
 from egp_physics.egp_typing import NewGCDef
 from egp_physics.insertion import _insert_gc
@@ -72,14 +74,28 @@ _CASE_REQS: dict[int, tuple[tuple[str, str], tuple[str, str], str]] = {
 
 
 # Generation of all possible TGC & IGC variants for each case.
-# {Case: [(TGC variants), (IGC variants), above row options]}
+# {Case: [[TGC variants], [IGC variants], above row options]}
 _CASE_VARIANTS: dict[int, list[Any]] = {}
 for case, reqs in _CASE_REQS.items():
     for xgc_reqs in reqs[:2]:
         variables: str = "".join(set(_ROWS) - set(xgc_reqs[0]) - set(xgc_reqs[1]))
-        variants = tuple("".join(sorted(xgc_reqs[0] + variables[0:v])) for v in range(len(variables) + 1))
+        variants: list[str] = ["".join(sorted(xgc_reqs[0] + variables[0:v])) for v in range(len(variables) + 1)]
         _CASE_VARIANTS.setdefault(case, []).append(variants)
     _CASE_VARIANTS[case].append(reqs[2])
+
+
+# Somes cases are invalid
+for case, variant_pair in _CASE_VARIANTS.items():
+    for variants in variant_pair[:2]:
+        for variant in deepcopy(variants):
+            if "B" in variant and "A" not in variant:
+                variants.remove(variant)
+            elif "F" in variant and "O" in variant  and "P" not in variant:
+                variants.remove(variant)
+            elif "F" in variant and "O" not in variant and "P" in variant:
+                variants.remove(variant)
+            elif variant in ("O", "P", "Z"):
+                variants.remove(variant)
 
 
 # Generate all combinations of TGC & IGC for each case
@@ -89,67 +105,43 @@ _CASE_COMBOS: list[tuple[Any, ...]] = [(case, *combo) for case, variants in _CAS
 # Superset of all the possible xGC graph row variants.
 _VARIANT_SUPERSET_SET: set[str] = set()
 for variants in _CASE_VARIANTS.values():
-    for variant in variants:
+    for variant in variants[:2]:
         _VARIANT_SUPERSET_SET |= set(variant)
 _VARIANT_SUPERSET: tuple[str, ...] = tuple(_VARIANT_SUPERSET_SET)
 
 
 # Restrict the graph schema to only the integer type and short interface lengths.
 _SIMPLE_GRAPH_SCHEMA: dict[str, dict[str, Any]] = deepcopy(GRAPH_SCHEMA)
-for variant in _SIMPLE_GRAPH_SCHEMA["graph"]["oneof_schema"]:
+for variant in _SIMPLE_GRAPH_SCHEMA["graph"]["anyof_schema"]:
     # Don't need to create anything in row U it will be populated, as needed, by normalization.
     for row in variant.values():
         # Max 4 destinations on a row
         if row.get("maxlength", 1) == 256:
-            row["maxlength"] = 4
+            row["maxlength"] = 8
         # All end point types set to 2
         if "ep_type" in row["schema"]["items"]:
             row["schema"]["items"][row["schema"]["items"].index("ep_type")] = {"type": "integer", "allowed": [2]}
+validator = base_validator(_SIMPLE_GRAPH_SCHEMA)
 
-
-# Creation of a graph schema for each variant and the associated validator.
-# {Variant: (Schema, Validator)}
-_VARIANT_VALIDATORS: dict[str, tuple[dict[str, Any], Any]] = {}
-for variant in _VARIANT_SUPERSET:
-    schema: dict[str, Any] = {"graph": {
-            "type": "dict",
-            "required": True,
-            "schema": deepcopy(_SIMPLE_GRAPH_SCHEMA["graph"]["oneof_schema"]["F" in variant])
-        }
-    }
-
-    # Remove rows that are not in the variant
-    for row in _ROWS:
-        if row not in variant and row in schema["graph"]["schema"] and row not in "PU":
-            del schema["graph"]["schema"][row]
-            if row == "O" and "P" in schema["graph"]["schema"]:
-                del schema["graph"]["schema"]["P"]
-            if row == "A" and "B" in schema["graph"]["schema"]:
-                del schema["graph"]["schema"]["B"]
-
-    # Make sure allowed rows do not include any rows that have been removed
-    for row, rdef in deepcopy(schema["graph"]["schema"]).items():
-        if "allowed" in rdef["schema"]["items"][0]:
-            rdef["schema"]["items"][0]["allowed"] = list(set(rdef["schema"]["items"][0]["allowed"]) - (set(_ROWS) - set(variant)))
-            # There are no allowed row reference options. So row must be empty.
-            if not rdef["schema"]["items"][0]["allowed"]:
-                del schema["graph"]["schema"][row]
-
-    # Row U is superflous unless only row I exists.
-    if variant != "I" and "U" in schema["graph"]["schema"]:
-        del schema["graph"]["schema"]["U"]
-
-    validator = base_validator(schema)
-    _VARIANT_VALIDATORS[variant] = (schema, validator)
-
-print(pformat(_VARIANT_VALIDATORS))
 
 # Create 10 sample graphs for each variant.
-_VARIANT_SAMPLES: dict[str, tuple[gc_graph, ...]] = {
-    variant: tuple(random_gc_graph(validator, True) for _ in range(10))
-    for variant, (_, validator) in _VARIANT_VALIDATORS.items()
-}
-
+_DUMMY_LIST: list[int] = [0] * 10
+_VARIANT_SAMPLES: dict[str, list[JSONGraph]] = {v: [] for v in _VARIANT_SUPERSET}
+samples: int = len(_VARIANT_SUPERSET_SET) * 10
+with tqdm(total=samples) as pbar:
+    while samples:
+        new_graph: gc_graph = random_gc_graph(validator, True)
+        rows = set(new_graph.rows[SRC_EP])
+        rows.update(new_graph.rows[DST_EP])
+        rows.discard("U")
+        graph_variant: str = ''.join(sorted(rows))
+        if len(_VARIANT_SAMPLES.get(graph_variant, _DUMMY_LIST)) < 10:
+            _VARIANT_SAMPLES[graph_variant].append(connection_graph_to_json(new_graph.connection_graph()))
+            pbar.update(1)
+            samples -= 1
+            if samples < 200:
+                with open("tests/data/test_insertion.json", "w", encoding="utf-8") as f:
+                    dump(_VARIANT_SAMPLES, f, indent=4, sort_keys=True)
 
 # Codification of the RGC and FGC graphs after insertion case.
 # {Case: ({RGC Row: (Source xGC, Row) | None}} | None, {FGC Row: (Source xGC, Row) | None}} | None)
