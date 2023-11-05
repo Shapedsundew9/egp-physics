@@ -31,7 +31,8 @@ from json import load, dump
 from egp_types.dGC import dGC
 from egp_types.egp_typing import Row, connection_graph_to_json, JSONGraph
 from egp_types.gc_graph import gc_graph, random_gc_graph, SRC_EP, DST_EP
-from egp_types.xgc_validator import GRAPH_SCHEMA, base_validator
+from egp_utils.base_validator import base_validator
+from egp_types.graph_validators import LIMITED_INTERNAL_GRAPH_SCHEMA, GR
 from egp_physics.egp_typing import NewGCDef
 from egp_physics.insertion import _insert_gc
 
@@ -110,14 +111,18 @@ for variants in _CASE_VARIANTS.values():
 _VARIANT_SUPERSET: tuple[str, ...] = tuple(_VARIANT_SUPERSET_SET)
 
 
+
+
+
+
 # Restrict the graph schema to only the integer type and short interface lengths.
-_SIMPLE_GRAPH_SCHEMA: dict[str, dict[str, Any]] = deepcopy(GRAPH_SCHEMA)
-for variant in _SIMPLE_GRAPH_SCHEMA["graph"]["anyof_schema"]:
+_SIMPLE_GRAPH_SCHEMA: dict[str, dict[str, Any]] = deepcopy(LIMITED_INTERNAL_GRAPH_SCHEMA)
+for variant in _SIMPLE_GRAPH_SCHEMA["internal_graph"]["valuesrules"]["oneof"]:
     # Don't need to create anything in row U it will be populated, as needed, by normalization.
     for row in variant.values():
         # Max 4 destinations on a row
         if row.get("maxlength", 1) == 256:
-            row["maxlength"] = 8
+            row["maxlength"] = 16
         # All end point types set to 2
         if "ep_type" in row["schema"]["items"]:
             row["schema"]["items"][row["schema"]["items"].index("ep_type")] = {"type": "integer", "allowed": [2]}
