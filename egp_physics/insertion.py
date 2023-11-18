@@ -286,7 +286,7 @@ def _insert_graph(
     fig: internal_graph = internal_graph()
     rig: internal_graph = internal_graph()
     if above_row != "I":
-        if tgcg.has_f:
+        if tgcg.has_row("F"):
             rig = deepcopy(tgcg.i_graph)
         else:
             rig.update(tig.copy_rows_src_eps(("I", "C"), True))
@@ -297,10 +297,10 @@ def _insert_graph(
         _insert_graph_case_0(tig, iig, rig)
     elif above_row == "Z":
         _insert_graph_case_11(tig, iig, rig)
-    elif not tgcg.has_a:
+    elif not tgcg.has_row("A"):
         _insert_graph_case_1(tig, iig, rig)
-    elif not tgcg.has_f:
-        if not tgcg.has_b:
+    elif not tgcg.has_row("F"):
+        if not tgcg.has_row("B"):
             if above_row == "A":
                 _insert_graph_case_2(tig, iig, rig)
             else:
@@ -548,10 +548,10 @@ def _recursive_insert_gc(gms: gene_pool, work_stack: WorkStack) -> NewGCDef:
             _insert_gc_case_0(tgc, igc, rgc)
         elif above_row == "Z":
             _insert_gc_case_11(tgc, igc, rgc)
-        elif not tgcg.has_a:
+        elif not tgcg.has_row("A"):
             _insert_gc_case_1(igc, rgc)
-        elif not tgcg.has_f:
-            if not tgcg.has_b:
+        elif not tgcg.has_row("F"):
+            if not tgcg.has_row("B"):
                 if above_row == "A":
                     _insert_gc_case_2(tgc, igc, rgc)
                 else:
@@ -800,7 +800,7 @@ def steady_state_exception(gms: gene_pool, fgc: aGC) -> Work:
     inputs: list[int] = [
         ep.typ
         for ep in fgc_graph.i_graph.src_rows_filter(
-            VALID_ROW_SOURCES[fgc["gc_graph"].has_f][cast(Row, above_row)]
+            VALID_ROW_SOURCES[fgc["gc_graph"].has_row("F")][cast(Row, above_row)]
         )
     ]
 
