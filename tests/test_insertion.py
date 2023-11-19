@@ -1,6 +1,7 @@
 """Test GC insertion operations.
 
 See https://docs.google.com/spreadsheets/d/1YQjrM91e5x30VUIRzipNYX3W7yiFlg6fy9wKbMTx1iY/edit?usp=sharing
+for insertion cases.
 
 Simple validation is the following:
     1. TGC inputs == RGC inputs
@@ -16,6 +17,13 @@ It is NOT:
 Special cases to check:
     a. IGC & TGC are the same instance
 
+The preamble to the test cases codifies the rules in the google spreadsheet insertion case definitions.
+The test cases are generated from the rules by means of a Cerberus validator using surebrec.
+The validator is used to generate a set of sample graphs for each variant of TGC & IGC structure.
+It is easierest to generate the variety needed from the internal graph representation and then convert
+to the gc_graph representation.
+
+Repeated generation is avoided by saving the sample graphs to a file and loading them in future runs.
 """
 from copy import deepcopy
 from itertools import count
@@ -97,7 +105,7 @@ for case, variant_pair in _CASE_VARIANTS.items():
         for variant in deepcopy(variants):
             if "B" in variant and "A" not in variant:
                 variants.remove(variant)
-            elif "F" in variant and "O" in variant  and "P" not in variant:
+            elif "F" in variant and "O" in variant and "P" not in variant:
                 variants.remove(variant)
             elif "F" in variant and "O" not in variant and "P" in variant:
                 variants.remove(variant)
@@ -116,6 +124,7 @@ for variants in _CASE_VARIANTS.values():
         _VARIANT_SUPERSET_SET |= set(variant)
 _VARIANT_SUPERSET_SET.discard("")
 _VARIANT_SUPERSET: tuple[str, ...] = tuple(_VARIANT_SUPERSET_SET)
+_logger.debug(f"Variants superset: {sorted(_VARIANT_SUPERSET)}")
 
 
 # Generate a set of sample graphs for each variant if they have not already been generated and saved to a file.
@@ -158,10 +167,13 @@ if not exists(filename):
                     _logger.debug(f"No valid source rows for row {row} in variant {variant}")
                     del variant_schema["internal_graph"]["valuesrules"]["oneof"][idx]
 
-        _VALIDATORS[variant] = base_graph_validator()
-        _VALIDATORS[variant].rules_set_registry = GRAPH_REGISTRY
-        _VALIDATORS[variant].schema = variant_schema
-        _logger.debug(f"{variant}:\n{pformat(variant_schema)}")
+        if variant_schema["internal_graph"]["valuesrules"]["oneof"]:
+            _VALIDATORS[variant] = base_graph_validator()
+            _VALIDATORS[variant].rules_set_registry = GRAPH_REGISTRY
+            _VALIDATORS[variant].schema = variant_schema
+            _logger.debug(f"{variant}:\n{pformat(variant_schema)}")
+        else:
+            _logger.debug(f"Variant '{variant}' has no valid rows.")
 
     # Create NUM_SAMPLES sample graphs for each variant.
     NUM_SAMPLES: int = 10
@@ -175,6 +187,7 @@ if not exists(filename):
         _VARIANT_SAMPLES[variant] = gc_graph_list
 
     # Write the samples to a file so we can just load them in future
+    _logger.debug(f"Variants created: {sorted(_VARIANT_SAMPLES.keys())}")
     i_graph_json = {k: [v.i_graph.json_obj() for v in l] for k, l in _VARIANT_SAMPLES.items()}
     _logger.debug(f"Variants stored: {sorted(i_graph_json.keys())}")
     with open(filename, "w", encoding="ascii") as f:
@@ -186,6 +199,7 @@ with open(filename, "r", encoding="ascii") as f:
 
 # Add an empty graph to the "" variant
 _VARIANT_SAMPLES[""] = [gc_graph() for _ in range(len(_VARIANT_SAMPLES["I"]))]
+_VARIANT_VALID_SUPERSET = tuple(_VARIANT_SAMPLES.keys())
 _logger.debug(f"Variants loaded: {sorted(_VARIANT_SAMPLES.keys())}")
 
 
@@ -392,8 +406,8 @@ def new_dgc(graph: gc_graph) -> dGC:
 
 def new_xgc(xgc_variant: str) -> dGC:
     """Return an t or i gc with a new reference."""
-    gca: dGC = new_dgc(choice(_VARIANT_SAMPLES[choice(_VARIANT_SUPERSET)]))
-    gcb: dGC = new_dgc(choice(_VARIANT_SAMPLES[choice(_VARIANT_SUPERSET)]))
+    gca: dGC = new_dgc(choice(_VARIANT_SAMPLES[choice(_VARIANT_VALID_SUPERSET)]))
+    gcb: dGC = new_dgc(choice(_VARIANT_SAMPLES[choice(_VARIANT_VALID_SUPERSET)]))
     return {
         'gc_graph': choice(_VARIANT_SAMPLES[xgc_variant]),
         'ref': next(_REFERENCE),
@@ -451,6 +465,6 @@ def test_gc_insert(i_case, tgc_variant, igc_variant, above_row) -> None:
                     if expected_row[1] != "IO":
                         assert rgc["gc_graph"].row_if(rgc_row) == xgc["gc_graph"].row_if(cast(Row, expected_row[1])), f"Expectations: {expected_row}"
                     else:
-                        assert (rgc["gc_graph"].input_if(), rgc["gc_graph"].output_if()) == (
-                            xgc["gc_graph"].input_if(), xgc["gc_graph"].output_if()), f"Expectations: {expected_row}"
+                        assert rgc["gc_graph"].row_if(rgc_row) == (
+                            xgc["gc_graph"].output_if(), xgc["gc_graph"].input_if()), f"Expectations for row {rgc_row}: {expected_row}"
 
