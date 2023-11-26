@@ -772,15 +772,6 @@ def steady_state_exception(gms: gene_pool, fgc: aGC) -> Work:
     the most local scope.
 
     If no candidates are found in the GMS then None is returned.
-
-    Args
-    ----
-    gms: A source of genetic material
-    fgc (fGC): fGC with incomplete graph.
-
-    Returns
-    -------
-    A workstack: (target_gc, insert_gc, 'A', 'B' or 'O')
     """
     if _LOG_DEBUG:
         _logger.debug(
@@ -793,7 +784,7 @@ def steady_state_exception(gms: gene_pool, fgc: aGC) -> Work:
     outputs: list[int] = []
     for ep in fgc_graph.i_graph.dst_unref_filter():
         if ep.row < above_row:
-            _above_row = ep.row
+            above_row = ep.row
         outputs.append(ep.typ)
 
     # Find viable source types above the highest row.

@@ -36,16 +36,18 @@ from logging import DEBUG, INFO, NullHandler, getLogger, Logger
 from tqdm import tqdm
 from json import load, dump
 from os.path import exists, dirname, join
+from itertools import combinations
 
 from egp_types.dGC import dGC
 from egp_types.ep_type import ep_type_lookup
-from egp_types.egp_typing import Row, connection_graph_to_json, JSONGraph, VALID_ROW_SOURCES, SourceRow
+from egp_types.egp_typing import Row, ROWS, VALID_GRAPH_ROW_COMBINATIONS, ConnectionGraph
 from egp_types.gc_graph import gc_graph, random_gc_graph, SRC_EP, DST_EP
 from egp_types.internal_graph import random_internal_graph, internal_graph, internal_graph_from_json
 from egp_types.graph_validators import base_graph_validator
 from egp_types.graph_validators import LIMITED_INTERNAL_GRAPH_SCHEMA, GRAPH_REGISTRY
 from egp_physics.egp_typing import NewGCDef
 from egp_physics.insertion import _insert_gc
+from egp_physics import insertion
 
 
 # Logging
@@ -55,16 +57,14 @@ _LOG_DEBUG: bool = _logger.isEnabledFor(DEBUG)
 getLogger('surebrec').setLevel(INFO)
 
 
-# Cerberus rules for the internal graph
-
-
+# Fake reference generator
 _REFERENCE: count = count(1)
-_ROWS: str = "ICFABO"
 
 
 # Fake GMS with as much as we need to test the insertion.
 # Note that a steady state exception should never be raised in this test.
 class gms:
+    """Fake GMS."""
     next_reference: Callable = lambda self: next(_REFERENCE)
 _GMS = gms()
 
@@ -93,94 +93,35 @@ _CASE_REQS: dict[int, tuple[tuple[str, str], tuple[str, str], str]] = {
 _CASE_VARIANTS: dict[int, list[Any]] = {}
 for case, reqs in _CASE_REQS.items():
     for xgc_reqs in reqs[:2]:
-        variables: str = "".join(set(_ROWS) - set(xgc_reqs[0]) - set(xgc_reqs[1]))
-        variants: list[str] = ["".join(sorted(xgc_reqs[0] + variables[0:v])) for v in range(len(variables) + 1)]
+        variables: str = "".join(set(cast(str, ROWS)) - set(xgc_reqs[0]) - set(xgc_reqs[1]))
+        variants: list[str] = []
+        for n in range(len(variables)):
+            for s in combinations(variables, n):
+                s_str: str = ''.join(sorted(xgc_reqs[0] + "".join(s)))
+                # A graph with just an O row is guaranteed to be unstable 
+                if s_str in VALID_GRAPH_ROW_COMBINATIONS and s_str != "O":
+                    variants.append(s_str)
         _CASE_VARIANTS.setdefault(case, []).append(variants)
     _CASE_VARIANTS[case].append(reqs[2])
-
-
-# Somes cases are invalid
-for case, variant_pair in _CASE_VARIANTS.items():
-    for variants in variant_pair[:2]:
-        for variant in deepcopy(variants):
-            if "B" in variant and "A" not in variant:
-                variants.remove(variant)
-            elif "F" in variant and "O" in variant and "P" not in variant:
-                variants.remove(variant)
-            elif "F" in variant and "O" not in variant and "P" in variant:
-                variants.remove(variant)
-            elif variant in ("O", "P", "Z"):
-                variants.remove(variant)
 
 
 # Generate all combinations of TGC & IGC for each case
 _CASE_COMBOS: list[tuple[Any, ...]] = [(case, *combo) for case, variants in _CASE_VARIANTS.items() for combo in product(*variants)]
 _logger.debug(f"Case combos:\n{pformat(_CASE_COMBOS)}")
 
-# Superset of all the possible xGC graph row variants.
-_VARIANT_SUPERSET_SET: set[str] = set()
-for variants in _CASE_VARIANTS.values():
-    for variant in variants[:2]:
-        _VARIANT_SUPERSET_SET |= set(variant)
-_VARIANT_SUPERSET_SET.discard("")
-_VARIANT_SUPERSET: tuple[str, ...] = tuple(_VARIANT_SUPERSET_SET)
-_logger.debug(f"Variants superset: {sorted(_VARIANT_SUPERSET)}")
-
 
 # Generate a set of sample graphs for each variant if they have not already been generated and saved to a file.
 filename: str = join(dirname(__file__), "data", "test_insertion.json")
 if not exists(filename):
-    # Restrict the graph schema to <= 32 endpoints, only the bool type and no references
-    _LIMITED_INTERNAL_GRAPH_SCHEMA: dict[str, dict[str, Any]] = deepcopy(LIMITED_INTERNAL_GRAPH_SCHEMA)
-    _LIMITED_INTERNAL_GRAPH_SCHEMA["internal_graph"]["maxlength"] = 32
-    for row in _LIMITED_INTERNAL_GRAPH_SCHEMA["internal_graph"]["valuesrules"]["oneof"]:
-        # Don't need to create anything in row U it will be populated, as needed, by normalization.
-        if "anyof" in row["valuesrules"]:
-            for row_variant in row["valuesrules"]["anyof"]:
-                row_variant["items"][4] = {"type": "list", "maxlength": 0}
-                if row_variant["items"][2] != "ep_type_only_bool":
-                    row_variant["items"][2] = {"type": "integer", "allowed": [ep_type_lookup["n2v"]["bool"]]}
-        else:
-            row["valuesrules"]["items"][4] = {"type": "list", "maxlength": 0}
-            if row["valuesrules"]["items"][2] != "ep_type_only_bool":
-                row["valuesrules"]["items"][2] = {"type": "integer", "allowed": [ep_type_lookup["n2v"]["bool"]]}
-
-
-    # Create a validator for each variant of the simple graph schema.
-    _VALIDATORS: dict[str, base_graph_validator] = {}
-    for variant in _VARIANT_SUPERSET:
-        variant_schema: dict[str, dict[str, Any]] = deepcopy(_LIMITED_INTERNAL_GRAPH_SCHEMA)
-
-        # _LIMITED_INTERNAL_GRAPH_SCHEMA["internal_graph"]["valuesrules"]["oneof"] is a list of dicts
-        for idx, row_definition in reversed(tuple(enumerate(variant_schema["internal_graph"]["valuesrules"]["oneof"]))):
-            # If the row is not in the variant then remove it from the schema
-            row = row_definition["keysrules"]["regex"][0]
-            if row not in variant:
-                _logger.debug(f"Removing row: {row_definition['keysrules']['regex'][0]}")
-                _logger.debug(f"Deleted: {variant_schema['internal_graph']['valuesrules']['oneof'][idx]}")
-                del variant_schema["internal_graph"]["valuesrules"]["oneof"][idx]
-            # else if this is a destination endpoint definition    
-            elif row_definition["keysrules"]["regex"][-1] == "d":
-                # Then the row it is on must have valid source rows present or else the graph will be unstable
-                valid_sources: tuple[SourceRow, ...] = VALID_ROW_SOURCES["F" in variant][row]
-                if not any(valid_source in variant for valid_source in valid_sources):
-                    _logger.debug(f"No valid source rows for row {row} in variant {variant}")
-                    del variant_schema["internal_graph"]["valuesrules"]["oneof"][idx]
-
-        if variant_schema["internal_graph"]["valuesrules"]["oneof"]:
-            _VALIDATORS[variant] = base_graph_validator()
-            _VALIDATORS[variant].rules_set_registry = GRAPH_REGISTRY
-            _VALIDATORS[variant].schema = variant_schema
-            _logger.debug(f"{variant}:\n{pformat(variant_schema)}")
-        else:
-            _logger.debug(f"Variant '{variant}' has no valid rows.")
+    # 1. Generate 100 random src & dst endpoints in the row required
+    # 2. Create variants by randomly choosing a subset of required row end points
 
     # Create NUM_SAMPLES sample graphs for each variant.
     NUM_SAMPLES: int = 10
     _VARIANT_SAMPLES: dict[str, list[gc_graph]] = {}
-    for variant in tqdm(_VALIDATORS, desc="Generating graphs"):
+    for rseed, variant in enumerate(tqdm(VALID_GRAPH_ROW_COMBINATIONS, desc="Generating graphs")):
         gc_graph_list: list[gc_graph] = [
-            gc_graph(i_graph=random_internal_graph(_VALIDATORS[variant], verify=True)) for _ in range(NUM_SAMPLES)]
+            gc_graph(i_graph=random_internal_graph(variant, (ep_type_lookup["n2v"]["int"],), verify=True, rseed=rseed * NUM_SAMPLES + i, row_stablization=True)) for i in range(NUM_SAMPLES)]
         for gcg in gc_graph_list:
             gcg.normalize()
             assert gcg.validate()
@@ -197,8 +138,8 @@ if not exists(filename):
 with open(filename, "r", encoding="ascii") as f:
     _VARIANT_SAMPLES = {k: [gc_graph(i_graph=internal_graph_from_json(v)) for v in l] for k, l in load(f).items()}
 
-# Add an empty graph to the "" variant
-_VARIANT_SAMPLES[""] = [gc_graph() for _ in range(len(_VARIANT_SAMPLES["I"]))]
+# O row only graphs are guaranteed to be unstable
+del _VARIANT_SAMPLES["O"]
 _VARIANT_VALID_SUPERSET = tuple(_VARIANT_SAMPLES.keys())
 _logger.debug(f"Variants loaded: {sorted(_VARIANT_SAMPLES.keys())}")
 
@@ -418,9 +359,25 @@ def new_xgc(xgc_variant: str) -> dGC:
     }
 
 
+# Mock interface proximity select so that any steady state exception
+# returns a GC that will not raise further exceptions.
+GCG = gc_graph(cast(ConnectionGraph, {"O": [["A", 0, ep_type_lookup["n2v"]["int"]]]}))
+def mock_ips(_, __) -> dGC:
+    """Mock interface proximity select so that any steady state exception returns a GC that will not raise further exceptions."""
+    return new_dgc(GCG)
+
+
+# Mock steady state exception: Should not happen in this test.
+def mock_sse(_, __) -> dGC:
+    """Mock steady state exception: Should not happen in this test."""
+    assert False, "Steady State Exception should not happen!"
+
+
 @pytest.mark.parametrize("i_case, tgc_variant, igc_variant, above_row", _CASE_COMBOS)
-def test_gc_insert(i_case, tgc_variant, igc_variant, above_row) -> None:
+def test_gc_insert(monkeypatch, i_case, tgc_variant, igc_variant, above_row) -> None:
     """Test all insertion cases for all combinations of IGC & TGC structures."""
+    monkeypatch.setattr(insertion, "steady_state_exception", mock_sse)
+
     tgc: dGC = new_xgc(tgc_variant)
     igc: dGC = new_xgc(igc_variant)
 
