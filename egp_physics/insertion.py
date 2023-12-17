@@ -1,7 +1,6 @@
 """The operations that can be performed on a GC."""
 from copy import deepcopy
 from logging import DEBUG, Logger, NullHandler, getLogger
-from pprint import pformat
 from typing import Literal, LiteralString, cast, Callable
 from random import randint
 
@@ -118,8 +117,8 @@ def _insert_graph_case_0(
     """Insert igc into tgc case 0."""
     _logger.debug("Case 0: Stack")
     rig.update(iig.copy_row("I", True))
-    rig.update(iig.insert_row_as("A"))
-    rig.update(tig.insert_row_as("B"))
+    rig.update(iig.as_row("A"))
+    rig.update(tig.as_row("B"))
     rig.update(tig.copy_row("O", True))
     rig.update(rig.direct_connect("I", "A"))
     rig.update(rig.direct_connect("B", "O"))
@@ -130,7 +129,7 @@ def _insert_graph_case_1(
 ) -> None:
     """Insert igc into tgc case 1."""
     _logger.debug("Case 1: No row A or B")
-    rig.update(iig.insert_row_as("A"))
+    rig.update(iig.as_row("A"))
     rig.update(tig.copy_row("O"))
 
 
@@ -139,7 +138,7 @@ def _insert_graph_case_2(
 ) -> None:
     """Insert igc into tgc case 2."""
     _logger.debug("Case 2: No row B and insert above A")
-    rig.update(iig.insert_row_as("A"))
+    rig.update(iig.as_row("A"))
     rig.update(tig.move_row("A", "B"))
     rig.update(tig.copy_row("O"))
     rig.redirect_refs("O", DST_EP, "A", "B")
@@ -151,102 +150,66 @@ def _insert_graph_case_3(
     """Insert igc into tgc case 3."""
     _logger.debug("Case 3: No row B and insert below A")
     rig.update(tig.copy_rows(("A", "O")))
-    rig.update(iig.insert_row_as("B"))
+    rig.update(iig.as_row("B"))
 
 
 def _insert_graph_case_4(
-    tig: internal_graph, iig: internal_graph, rig: internal_graph, fig: internal_graph
+    tig: internal_graph, iig: internal_graph, _: internal_graph, fig: internal_graph
 ) -> None:
     """Insert igc into tgc case 4."""
     _logger.debug("Case 4: Has rows A & B and insert above A")
-    fig.update(tig.copy_rows(("I", "C"), True))
-    fig.update(iig.insert_row_as("A"))
-    fig.update(tig.move_row("A", "B"))
-    fig.update(fig.direct_connect("B", "O"))
-    fig.update(fig.append_connect("A", "O"))
-    rig.update(rig.direct_connect("I", "A"))
-    rig.update(fig.move_row_cls("O", DST_EP, "A", SRC_EP, True))
-    rig.update(tig.copy_rows(("B", "O")))
+    fig.update(tig.embed("A", "B"))
+    fig.update(iig.as_row("A"))
 
 
 def _insert_graph_case_5(
-    tig: internal_graph, iig: internal_graph, rig: internal_graph, fig: internal_graph
+    tig: internal_graph, iig: internal_graph, _: internal_graph, fig: internal_graph
 ) -> None:
     """Insert igc into tgc case 5."""
     _logger.debug("Case 5: Has rows A & B and insert above B")
-    fig.update(tig.copy_rows(("I", "C"), True))
-    fig.update(tig.copy_rows_dst_eps(("A",)))
-    fig.update(tig.copy_rows_src_eps(("A",), True))
-    fig.update(iig.insert_row_as("B"))
-    fig.update(fig.direct_connect("A", "O"))
-    fig.update(fig.append_connect("B", "O"))
-    rig.update(rig.direct_connect("I", "A"))
-    rig.update(fig.move_row_cls("O", DST_EP, "A", SRC_EP, True))
-    rig.update(tig.copy_rows(("B", "O")))
+    fig.update(tig.embed("A", "A"))
+    fig.update(iig.as_row("B"))
 
 
 def _insert_graph_case_6(
-    tig: internal_graph, iig: internal_graph, rig: internal_graph, fig: internal_graph
+    tig: internal_graph, iig: internal_graph, _: internal_graph, fig: internal_graph
 ) -> None:
     """Insert igc into tgc case 6."""
     _logger.debug("Case 6: Has rows A & B and insert above O")
-    fig.update(tig.copy_rows(("I", "C"), True))
-    fig.update(tig.copy_rows_dst_eps(("A", "B")))
-    fig.update(tig.copy_rows_src_eps(("A", "B"), True))
-    fig.update(fig.direct_connect("A", "O"))
-    fig.update(fig.append_connect("B", "O"))
-    rig.update(rig.direct_connect("I", "A"))
-    rig.update(fig.move_row_cls("O", DST_EP, "A", SRC_EP, True))
-    rig.update(iig.insert_row_as("B"))
-    rig.update(tig.copy_row("O", True))
+    fig.update(tig.embed("B", "A"))
+    fig.update(iig.as_row("B"))
 
 
 def _insert_graph_case_7(
     tig: internal_graph, iig: internal_graph, fig: internal_graph
 ) -> None:
     """Insert igc into tgc case 7."""
-    fig.update(tig.move_row_cls("A", DST_EP, "I", SRC_EP, True))
-    fig.update(iig.insert_row_as("A"))
-    fig.update(tig.move_row("A", "B", True))
-    fig.update(fig.direct_connect("I", "B"))
-    fig.update(tig.move_row_cls("A", SRC_EP, "O", DST_EP, True))
-    fig.update(fig.direct_connect("B", "O"))
+    fig.update(tig.embed("A", "B"))
+    fig.update(iig.as_row("A"))
 
 
 def _insert_graph_case_8(
     tig: internal_graph, iig: internal_graph, fig: internal_graph
 ) -> None:
     """Insert igc into tgc case 8."""
-    fig.update(tig.move_row_cls("A", DST_EP, "I", SRC_EP, True))
-    fig.update(tig.copy_row("A", True))
-    fig.update(fig.direct_connect("I", "A"))
-    fig.update(iig.insert_row_as("B"))
-    fig.update(tig.move_row_cls("A", SRC_EP, "O", DST_EP, True))
-    fig.update(fig.direct_connect("A", "O"))
+    fig.update(tig.embed("A", "A"))
+    fig.update(iig.as_row("B"))
 
 
 def _insert_graph_case_9(
     tig: internal_graph, iig: internal_graph, fig: internal_graph
 ) -> None:
     """Insert igc into tgc case 9."""
-    fig.update(tig.move_row_cls("B", DST_EP, "I", SRC_EP, True))
-    fig.update(iig.insert_row_as("A"))
-    fig.update(tig.copy_row("B", True))
-    fig.update(fig.direct_connect("I", "B"))
-    fig.update(tig.move_row_cls("B", SRC_EP, "O", DST_EP, True))
-    fig.update(fig.direct_connect("B", "O"))
+    fig.update(tig.embed("B", "B"))
+    fig.update(iig.as_row("A"))
 
 
 def _insert_graph_case_10(
     tig: internal_graph, iig: internal_graph, fig: internal_graph
 ) -> None:
     """Insert igc into tgc case 10."""
-    fig.update(tig.move_row_cls("B", DST_EP, "I", SRC_EP, True))
-    fig.update(tig.move_row("B", "A", True))
-    fig.update(fig.direct_connect("I", "A"))
-    fig.update(iig.insert_row_as("B"))
-    fig.update(tig.move_row_cls("B", SRC_EP, "O", DST_EP, True))
-    fig.update(fig.direct_connect("B", "O"))
+    fig.update(tig.embed("B", "A"))
+    fig.update(iig.as_row("B"))
 
 
 def _insert_graph_case_11(
@@ -255,8 +218,8 @@ def _insert_graph_case_11(
     """Insert igc into tgc case 11."""
     _logger.debug("Case 11: Inverse Stack")
     rig.update(tig.copy_row("I", True))
-    rig.update(tig.insert_row_as("A"))
-    rig.update(iig.insert_row_as("B"))
+    rig.update(tig.as_row("A"))
+    rig.update(iig.as_row("B"))
     rig.update(iig.copy_row("O", True))
     rig.update(rig.direct_connect("I", "A"))
     rig.update(rig.direct_connect("B", "O"))
@@ -285,9 +248,9 @@ def _insert_graph(
     iig: internal_graph = igcg.i_graph
     fig: internal_graph = internal_graph()
     rig: internal_graph = internal_graph()
-    if above_row != "I":
+    if above_row != "I" and above_row != "Z":
         if tgcg.has_row("F"):
-            rig = deepcopy(tgcg.i_graph)
+            rig = deepcopy(tig)
         else:
             rig.update(tig.copy_rows_src_eps(("I", "C"), True))
 
@@ -306,6 +269,7 @@ def _insert_graph(
             else:
                 _insert_graph_case_3(tig, iig, rig)
         else:
+            rig = deepcopy(tig)
             if above_row == "A":
                 _insert_graph_case_4(tig, iig, rig, fig)
             elif above_row == "B":
@@ -324,10 +288,10 @@ def _insert_graph(
 
     # Pre-completed logging
     if _LOG_DEBUG:
-        _logger.debug(f"tgc ({type(tgcg)}):\n{pformat(tgcg)}")
-        _logger.debug(f"igc ({type(tgcg)}):\n{pformat(igcg)}")
-        _logger.debug(f"Pre-completed rig ({type(rig)}):\n{pformat(rig)}")
-        _logger.debug(f"Pre-completed fig ({type(fig)}):\n{pformat(fig)}")
+        _logger.debug(f"tgc ({type(tgcg)}):\n{tgcg.i_graph}")
+        _logger.debug(f"igc ({type(tgcg)}):\n{igcg.i_graph}")
+        _logger.debug(f"Pre-completed rig ({type(rig)}):\n{rig}")
+        _logger.debug(f"Pre-completed fig ({type(fig)}):\n{fig}")
 
     # Tidy up dangling references and normalize (make new connections)
     rig.complete_references()
@@ -342,13 +306,13 @@ def _insert_graph(
 
     # Post-completed logging
     if _LOG_DEBUG:
-        _logger.debug(f"Completed rig:\n{pformat(rig)}")
-        _logger.debug(f"Completed fig:\n{pformat(fig)}")
+        _logger.debug(f"Completed rig:\n{rig}")
+        _logger.debug(f"Completed fig:\n{fig}")
 
     return rgc_gc_graph, fgc_gc_graph
 
 
-def _insert_gc(gms: gene_pool, tgc: aGC, igc: aGC, above_row: InsertRow) -> NewGCDef:
+def _insert_gc(gms: gene_pool, tgc: aGC, igc: aGC, above_row: InsertRow, stabilize: bool = True) -> NewGCDef:
     """Insert igc into tgc above row 'above_row'.
 
     Args
@@ -357,6 +321,7 @@ def _insert_gc(gms: gene_pool, tgc: aGC, igc: aGC, above_row: InsertRow) -> NewG
     tgc: GC to insert insert_gc into.
     igc: GC to insert into target_gc.
     above_row: Insert above this row.
+    stablize: If True the graph will be stablized before returning.
 
     Returns
     -------
@@ -365,7 +330,7 @@ def _insert_gc(gms: gene_pool, tgc: aGC, igc: aGC, above_row: InsertRow) -> NewG
     """
     if _LOG_DEBUG:
         _logger.debug("Inserting into Target GC.")
-    return _recursive_insert_gc(gms, [(tgc, igc, above_row)])
+    return _recursive_insert_gc(gms, [(tgc, igc, above_row)], stabilize)
 
 
 def _insert_gc_case_0(tgc: aGC, igc: aGC, rgc: aGC) -> None:
@@ -422,10 +387,10 @@ def _insert_gc_case_5(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> None:
 def _insert_gc_case_6(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> None:
     """Insert igc data into tgc case 6."""
     _logger.debug("Case 6")
-    fgc["gca_ref"] = tgc["gca_ref"]
-    fgc["gcb_ref"] = tgc["gcb_ref"]
-    rgc["gca_ref"] = fgc["ref"]
-    rgc["gcb_ref"] = igc["ref"]
+    fgc["gca_ref"] = tgc["gcb_ref"]
+    fgc["gcb_ref"] = igc["ref"]
+    rgc["gca_ref"] = tgc["gca_ref"]
+    rgc["gcb_ref"] = fgc["ref"]
 
 
 def _insert_gc_case_7(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> None:
@@ -471,7 +436,7 @@ def _insert_gc_case_11(tgc: aGC, igc: aGC, rgc: aGC) -> None:
     rgc["gcb_ref"] = igc["ref"]
 
 
-def _recursive_insert_gc(gms: gene_pool, work_stack: WorkStack) -> NewGCDef:
+def _recursive_insert_gc(gms: gene_pool, work_stack: WorkStack, stablize: bool = True) -> NewGCDef:
     """Recursively insert GC's until the target GC is stable.
 
     A work stack is used to avoid actual recursion.
@@ -528,13 +493,13 @@ def _recursive_insert_gc(gms: gene_pool, work_stack: WorkStack) -> NewGCDef:
         if fgcg:
             fgcg_steady = fgcg.normalize()
             if _LOG_DEBUG:
-                _logger.debug(f"Normalized fgc:\n{pformat(fgcg)}")
+                _logger.debug(f"Normalized fgc:\n{fgcg.i_graph}")
             fgc["graph"] = fgcg.app_graph
             fgc["gc_graph"] = fgcg
             fgc["ancestor_a_ref"] = igc["ref"]
             fgc["ancestor_b_ref"] = tgc["ref"]
         if _LOG_DEBUG:
-            _logger.debug(f"Normalized rgc:\n{pformat(rgcg)}")
+            _logger.debug(f"Normalized rgc:\n{rgcg.i_graph}")
         rgc["graph"] = rgcg.app_graph
         rgc["gc_graph"] = rgcg
         rgc["ancestor_a_ref"] = tgc["ref"]
@@ -610,7 +575,8 @@ def _recursive_insert_gc(gms: gene_pool, work_stack: WorkStack) -> NewGCDef:
                     _logger.debug(f"FGC ref {ref_str(fgc['ref'])} added to fgc_dict.")
                 fgc_dict[fgc["ref"]] = fgc
 
-        if not rgcg_steady:
+        # We may not want to immediately stabilise the graph
+        if not rgcg_steady and stablize:
             if _LOG_DEBUG:
                 _logger.debug(f"RGC ref {ref_str(rgc['ref'])} is unstable.")
             work_stack.insert(0, steady_state_exception(gms, rgc))
@@ -624,6 +590,7 @@ def _recursive_insert_gc(gms: gene_pool, work_stack: WorkStack) -> NewGCDef:
             if _LOG_DEBUG:
                 assert rgcg.validate(), "RGC validation failed."
                 _logger.debug(f"RGC ref {ref_str(rgc['ref'])} added to fgc_dict.")
+            # Order of addition important.
             fgc_dict[rgc["ref"]] = rgc
 
         if _LOG_DEBUG:
