@@ -6,7 +6,7 @@ from random import randint
 
 from egp_stores.gene_pool import gene_pool
 from egp_types.xGC import xGC
-from egp_types.gc_graph import DST_EP, SRC_EP, gc_graph
+from egp_types.gc_graph import DST_EP, gc_graph
 from egp_types.internal_graph import internal_graph
 from egp_types.reference import ref_str
 from egp_types.ep_type import interface_definition, vtype
@@ -97,6 +97,9 @@ _MATCH_TYPES_SQL: tuple[LiteralString, ...] = (
     _MATCH_TYPE_11_SQL,
 )
 _NUM_MATCH_TYPES: int = len(_MATCH_TYPES_SQL)
+if _LOG_DEBUG:
+    for i, match_type in enumerate(_MATCH_TYPES_SQL):
+        _logger.debug(f"Match type {i} SQL: {match_type}")
 
 
 def default_dict_gc(ref: Callable[[], int]) -> dGC:
@@ -350,7 +353,7 @@ def _insert_gc_case_2(tgc: aGC, igc: aGC, rgc: aGC) -> None:
     """Insert igc data into tgc case 2."""
     _logger.debug("Case 2")
     rgc["gca_ref"] = igc["ref"]
-    if tgc["gca_ref"] is not None:
+    if tgc["gca_ref"]:
         rgc["gcb_ref"] = tgc["gca_ref"]
     else:
         rgc["gcb_ref"] = tgc["ref"]
@@ -359,7 +362,7 @@ def _insert_gc_case_2(tgc: aGC, igc: aGC, rgc: aGC) -> None:
 def _insert_gc_case_3(tgc: aGC, igc: aGC, rgc: aGC) -> None:
     """Insert igc data into tgc case 3."""
     _logger.debug("Case 3")
-    if tgc["gca_ref"] is not None:
+    if tgc["gca_ref"]:
         rgc["gca_ref"] = tgc["gca_ref"]
     else:
         rgc["gca_ref"] = tgc["ref"]

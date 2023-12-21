@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from egp_stores.gene_pool import gene_pool
 
 
-def gc_remove(gms: gene_pool, tgc: aGC, row: Row):
+def gc_remove(gms: gene_pool, tgc: aGC, row: Row) -> xGC:
     """Remove row A, B, C, P or O from tgc['graph'] to create rgc.
 
     The subsequent invalid graph is normalised and used to create rgc.
@@ -57,9 +57,9 @@ def gc_remove(gms: gene_pool, tgc: aGC, row: Row):
     if row == "A":
         rgc["gca_ref"] = tgc["gcb_ref"]
         rgc["gcb_ref"] = 0
-        if tgc["gc_graph"].has_b:
+        if tgc["gc_graph"].has_row("B"):
             rgc_igraph.update(
-                tgc["gc_graph"].i_graph.move_row("B", "A", has_f=tgc["gc_graph"].has_f)
+                tgc["gc_graph"].i_graph.move_row("B", "A", has_f=tgc["gc_graph"].has_row("F"))
             )
     elif row == "B":
         rgc["gca_ref"] = tgc["gca_ref"]
@@ -71,8 +71,6 @@ def gc_remove(gms: gene_pool, tgc: aGC, row: Row):
         rgc_igraph.update(tgc["gc_graph"].i_graph.move_row("P", "O"))
     rgc["gc_graph"].normalize()
     return pgc_epilogue(gms, rgc)
-
-
 
 
 def gc_remove_all_connections(gms: gene_pool, tgc: xGC) -> xGC:
@@ -215,7 +213,7 @@ def gc_remove_output(gms: gene_pool, tgc: xGC) -> xGC:
         _logger.debug(
             f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}"
         )
-    dgc["gc_graph"].add_output()
+    dgc["gc_graph"].remove_output()
     dgc["gc_graph"].normalize()
     return pgc_epilogue(gms, dgc)
 
@@ -247,5 +245,3 @@ def gc_remove_constant(gms: gene_pool, tgc: xGC) -> xGC:
     dgc["gc_graph"].remove_constant()
     dgc["gc_graph"].normalize()
     return pgc_epilogue(gms, dgc)
-
-

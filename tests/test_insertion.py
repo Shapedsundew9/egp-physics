@@ -30,7 +30,7 @@ from json import dump, load
 from logging import DEBUG, INFO, Logger, NullHandler, getLogger
 from os.path import dirname, exists, join
 from pprint import pformat
-from random import choice
+from random import choice, randint
 from typing import Any, Callable, cast
 
 import pytest
@@ -45,12 +45,14 @@ from egp_types.egp_typing import (
 )
 from egp_types.ep_type import ep_type_lookup
 from egp_types.gc_graph import gc_graph
+from egp_types.xGC import xGC
+from egp_types.aGC import aGC
 from egp_types.internal_graph import internal_graph_from_json, random_internal_graph
 from tqdm import tqdm
 
 from egp_physics import insertion
 from egp_physics.egp_typing import NewGCDef
-from egp_physics.insertion import _insert_gc
+from egp_physics.insertion import _insert_gc, gc_insert, gc_stack
 
 # Logging
 _logger: Logger = getLogger(__name__)
@@ -65,13 +67,23 @@ _REFERENCE: count = count(1)
 
 # Fake GMS with as much as we need to test the insertion.
 # Note that a steady state exception should never be raised in this test.
-class gms:
+class gene_pool:
     """Fake GMS."""
 
     next_reference: Callable = lambda self: next(_REFERENCE)
+    pool: dict = {}
+    state: int = 0
+
+    def select(self, _: str, literals: dict[str, bytes | list | str]) -> list[aGC]:  # pylint: disable=unused-argument
+        """Return the stub GC after a few calls."""
+        if gene_pool.state:
+            gene_pool.state -= 1
+            return []
+        gene_pool.state = randint(0,5)
+        return [new_dgc(STUB_GCG)]
 
 
-_GMS = gms()
+_GMS = gene_pool()
 
 
 # Codification of the rules in the google spreadsheet insertion case definitions
@@ -345,15 +357,15 @@ _CASE_RESULTS: dict[int, tuple[dict[Row, tuple[str, ...] | None] | None, ...]] =
 }
 
 
-def new_dgc(graph: gc_graph) -> dGC:
+def new_dgc(graph: gc_graph, codon: bool = False) -> dGC:
     """Return a new dGC with a new reference."""
     return {
         "gc_graph": graph,
         "ref": next(_REFERENCE),
-        "gca_ref": next(_REFERENCE),
-        "gcb_ref": next(_REFERENCE),
-        "ancestor_a_ref": next(_REFERENCE),
-        "ancestor_b_ref": next(_REFERENCE),
+        "gca_ref": next(_REFERENCE) * int(not codon),
+        "gcb_ref": next(_REFERENCE) * int(not codon),
+        "ancestor_a_ref": next(_REFERENCE) * int(not codon),
+        "ancestor_b_ref": next(_REFERENCE) * int(not codon),
     }
 
 
@@ -373,20 +385,96 @@ def new_xgc(xgc_variant: str) -> dGC:
 
 # Mock interface proximity select so that any steady state exception
 # returns a GC that will not raise further exceptions.
-GCG = gc_graph(cast(ConnectionGraph, {"O": [["A", 0, ep_type_lookup["n2v"]["int"]]]}))
-
+STUB_GCG = gc_graph(cast(ConnectionGraph, {"O": [["A", 0, ep_type_lookup["n2v"]["int"]]]}))
+CODON_INT_GCG_DICT: dict = {
+    "A": [["I", 0, ep_type_lookup["n2v"]["int"]], ["I", 1, ep_type_lookup["n2v"]["int"]]],
+    "O": [["A", 0, ep_type_lookup["n2v"]["int"]]]
+}
+CODON_STR_GCG_DICT: dict = {
+    "A": [["I", 0, ep_type_lookup["n2v"]["str"]], ["I", 1, ep_type_lookup["n2v"]["str"]]],
+    "O": [["A", 0, ep_type_lookup["n2v"]["str"]]]
+}
+CODON_INT_GCG = gc_graph(cast(ConnectionGraph, CODON_INT_GCG_DICT))
+CODON_STR_GCG = gc_graph(cast(ConnectionGraph, CODON_STR_GCG_DICT))
 
 def mock_ips(_, __) -> dGC:
     """Mock interface proximity select so that any steady state exception returns a GC that will not raise further exceptions."""
-    return new_dgc(GCG)
+    return new_dgc(STUB_GCG)
+
+
+def test_gc_insert_codon_case_2() -> None:
+    """Test the gc_insert function.
+    
+    This is a simple test that just checks the function does not raise an exception for case 2.
+    It inserts a mock codon into another mock codon avoiding an steady state exception.
+    """
+    codon_a: dGC = new_dgc(CODON_INT_GCG, True)
+    codon_b: dGC = new_dgc(CODON_INT_GCG, True)
+    rgc: xGC = gc_insert(_GMS, codon_a, codon_b, "A")  # type: ignore
+    assert rgc is not None
+    assert rgc["gc_graph"].has_row("A")
+    assert rgc["gc_graph"].has_row("B")
+
+
+def test_gc_insert_codon_case_3() -> None:
+    """Test the gc_insert function.
+    
+    This is a simple test that just checks the function does not raise an exception for case 3.
+    It inserts a mock codon into another mock codon avoiding an steady state exception.
+    """
+    codon_a: dGC = new_dgc(CODON_INT_GCG, True)
+    codon_b: dGC = new_dgc(CODON_INT_GCG, True)
+    rgc: xGC = gc_insert(_GMS, codon_a, codon_b, "B")  # type: ignore
+    assert rgc is not None
+    assert rgc["gc_graph"].has_row("A")
+    assert rgc["gc_graph"].has_row("B")
+
+
+def test_gc_stack_case_1() -> None:
+    """Test the gc_stack function.
+    
+    This is a simple test that just checks the function does not raise an exception for case 1.
+    It inserts a mock codon into another mock codon avoiding an steady state exception.
+    """
+    codon_a: dGC = new_dgc(CODON_INT_GCG, True)
+    codon_b: dGC = new_dgc(CODON_INT_GCG, True)
+    rgc: xGC = gc_stack(_GMS, codon_a, codon_b)  # type: ignore
+    assert rgc is not None
+    assert rgc["gc_graph"].has_row("A")
+    assert rgc["gc_graph"].has_row("B")
+
+
+def test_gc_stack_case_11() -> None:
+    """Test the gc_stack function.
+    
+    This is a simple test that just checks the function does not raise an exception for case 11.
+    It inserts a mock codon into another mock codon avoiding an steady state exception.
+    """
+    codon_a: dGC = new_dgc(CODON_INT_GCG, True)
+    codon_b: dGC = new_dgc(CODON_INT_GCG, True)
+    rgc: xGC = gc_stack(_GMS, codon_a, codon_b, True)  # type: ignore
+    assert rgc is not None
+    assert rgc["gc_graph"].has_row("A")
+    assert rgc["gc_graph"].has_row("B")
+
+
+def test_unstable_rgc() -> None:
+    """Test the unstable RGC path.
+
+       This can be triggered by inserting a codon into a codon with incompatible interfaces.    
+    """
+    codon_a: dGC = new_dgc(CODON_STR_GCG, True)
+    codon_b: dGC = new_dgc(CODON_INT_GCG, True)
+    rgc: xGC = gc_insert(_GMS, codon_a, codon_b, "A")  # type: ignore
+    assert rgc is not None
 
 
 @pytest.mark.parametrize("i_case, tgc_variant, igc_variant, above_row", _CASE_COMBOS)
-def test_gc_insert(monkeypatch, i_case, tgc_variant, igc_variant, above_row) -> None:
+def test_gc_insert_all(monkeypatch, i_case, tgc_variant, igc_variant, above_row) -> None:
     """Test all insertion cases for all combinations of IGC & TGC structures."""
     # Mock the interface proximity select so that any steady state exception
     # returns a GC that will not raise further exceptions.
-    monkeypatch.setattr(insertion, "interface_proximity_select", mock_ips)
+    #monkeypatch.setattr(insertion, "interface_proximity_select", mock_ips)
 
     tgc: dGC = new_xgc(tgc_variant)
     igc: dGC = new_xgc(igc_variant)
