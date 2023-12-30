@@ -63,6 +63,11 @@ getLogger("surebrec").setLevel(INFO)
 
 # Fake reference generator
 _REFERENCE: count = count(1)
+def reference_func(_: bool = False) -> int:
+    """Return a new reference."""
+    next_reference =  next(_REFERENCE)
+    assert next_reference < 1000, "Too many references generated: Likely an infinite loop in insertion."
+    return next_reference
 
 
 # Fake GMS with as much as we need to test the insertion.
@@ -70,7 +75,7 @@ _REFERENCE: count = count(1)
 class gene_pool:
     """Fake GMS."""
 
-    next_reference: Callable = lambda self: next(_REFERENCE)
+    next_reference: Callable = reference_func
     pool: dict = {}
     state: int = 0
 
@@ -361,11 +366,11 @@ def new_dgc(graph: gc_graph, codon: bool = False) -> dGC:
     """Return a new dGC with a new reference."""
     return {
         "gc_graph": graph,
-        "ref": next(_REFERENCE),
-        "gca_ref": next(_REFERENCE) * int(not codon),
-        "gcb_ref": next(_REFERENCE) * int(not codon),
-        "ancestor_a_ref": next(_REFERENCE) * int(not codon),
-        "ancestor_b_ref": next(_REFERENCE) * int(not codon),
+        "ref": reference_func(),
+        "gca_ref": reference_func() * int(not codon),
+        "gcb_ref": reference_func() * int(not codon),
+        "ancestor_a_ref": reference_func() * int(not codon),
+        "ancestor_b_ref": reference_func() * int(not codon),
     }
 
 
@@ -375,7 +380,7 @@ def new_xgc(xgc_variant: str) -> dGC:
     gcb: dGC = new_dgc(choice(_VARIANT_SAMPLES[choice(_VARIANT_VALID_SUPERSET)]))
     return {
         "gc_graph": choice(_VARIANT_SAMPLES[xgc_variant]),
-        "ref": next(_REFERENCE),
+        "ref": reference_func(),
         "gca_ref": gca["ref"],
         "gcb_ref": gcb["ref"],
         "ancestor_a_ref": gca["ref"],
@@ -385,7 +390,7 @@ def new_xgc(xgc_variant: str) -> dGC:
 
 # Mock interface proximity select so that any steady state exception
 # returns a GC that will not raise further exceptions.
-STUB_GCG = gc_graph(cast(ConnectionGraph, {"O": [["A", 0, ep_type_lookup["n2v"]["int"]]]}))
+STUB_GCG = gc_graph(cast(ConnectionGraph, {"O": [["A", 0, ep_type_lookup["n2v"]["int"]], ["A", 1, ep_type_lookup["n2v"]["str"]]]}))
 CODON_INT_GCG_DICT: dict = {
     "A": [["I", 0, ep_type_lookup["n2v"]["int"]], ["I", 1, ep_type_lookup["n2v"]["int"]]],
     "O": [["A", 0, ep_type_lookup["n2v"]["int"]]]
@@ -458,11 +463,12 @@ def test_gc_stack_case_11() -> None:
     assert rgc["gc_graph"].has_row("B")
 
 
-def test_unstable_rgc() -> None:
+def test_unstable_rgc(monkeypatch) -> None:
     """Test the unstable RGC path.
 
        This can be triggered by inserting a codon into a codon with incompatible interfaces.    
     """
+    monkeypatch.setattr(insertion, "_interface_proximity_select_fail_safe", lambda: (new_dgc(STUB_GCG), ))
     codon_a: dGC = new_dgc(CODON_STR_GCG, True)
     codon_b: dGC = new_dgc(CODON_INT_GCG, True)
     rgc: xGC = gc_insert(_GMS, codon_a, codon_b, "A")  # type: ignore
@@ -470,17 +476,16 @@ def test_unstable_rgc() -> None:
 
 
 @pytest.mark.parametrize("i_case, tgc_variant, igc_variant, above_row", _CASE_COMBOS)
-def test_gc_insert_all(monkeypatch, i_case, tgc_variant, igc_variant, above_row) -> None:
+def test_gc_insert_all(i_case, tgc_variant, igc_variant, above_row) -> None:
     """Test all insertion cases for all combinations of IGC & TGC structures."""
     # Mock the interface proximity select so that any steady state exception
     # returns a GC that will not raise further exceptions.
-    #monkeypatch.setattr(insertion, "interface_proximity_select", mock_ips)
 
     tgc: dGC = new_xgc(tgc_variant)
     igc: dGC = new_xgc(igc_variant)
 
     # The FGC reference must be greater than this else it is not an FGC...
-    new_base_ref: int = next(_REFERENCE)
+    new_base_ref: int = reference_func()
 
     if _LOG_DEBUG:
         _logger.debug(f"Case: {i_case}, TGC variant: {tgc_variant}, IGC variant: {igc_variant}, Above row: {above_row}")

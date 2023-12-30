@@ -163,6 +163,7 @@ def _insert_graph_case_4(
     _logger.debug("Case 4: Has rows A & B and insert above A")
     fig.update(tig.embed("A", "B"))
     fig.update(iig.as_row("A"))
+    fig.extend_type_interface("A")
 
 
 def _insert_graph_case_5(
@@ -172,6 +173,7 @@ def _insert_graph_case_5(
     _logger.debug("Case 5: Has rows A & B and insert above B")
     fig.update(tig.embed("A", "A"))
     fig.update(iig.as_row("B"))
+    fig.extend_type_interface("B")
 
 
 def _insert_graph_case_6(
@@ -181,6 +183,7 @@ def _insert_graph_case_6(
     _logger.debug("Case 6: Has rows A & B and insert above O")
     fig.update(tig.embed("B", "A"))
     fig.update(iig.as_row("B"))
+    fig.extend_type_interface("B")
 
 
 def _insert_graph_case_7(
@@ -189,6 +192,7 @@ def _insert_graph_case_7(
     """Insert igc into tgc case 7."""
     fig.update(tig.embed("A", "B"))
     fig.update(iig.as_row("A"))
+    fig.extend_type_interface("A")
 
 
 def _insert_graph_case_8(
@@ -197,6 +201,7 @@ def _insert_graph_case_8(
     """Insert igc into tgc case 8."""
     fig.update(tig.embed("A", "A"))
     fig.update(iig.as_row("B"))
+    fig.extend_type_interface("B")
 
 
 def _insert_graph_case_9(
@@ -205,6 +210,7 @@ def _insert_graph_case_9(
     """Insert igc into tgc case 9."""
     fig.update(tig.embed("B", "B"))
     fig.update(iig.as_row("A"))
+    fig.extend_type_interface("A")
 
 
 def _insert_graph_case_10(
@@ -213,6 +219,7 @@ def _insert_graph_case_10(
     """Insert igc into tgc case 10."""
     fig.update(tig.embed("B", "A"))
     fig.update(iig.as_row("B"))
+    fig.extend_type_interface("B")
 
 
 def _insert_graph_case_11(
@@ -660,6 +667,11 @@ def gc_stack(gms: gene_pool, bottom_gc: aGC, top_gc: aGC, invert=False) -> xGC:
     return gms.pool[new_gc_definition[0]["ref"]]
 
 
+def _interface_proximity_select_fail_safe() -> tuple[aGC, ...]:
+    """This function exists to be mocked in testing"""
+    raise RuntimeError("No candidates found for interface proximity selection.")
+
+
 def interface_proximity_select(
     gms: gene_pool, xputs: dict[str, bytes | list | str]
 ) -> aGC:
@@ -716,17 +728,19 @@ def interface_proximity_select(
     #   g) This should first search the GP and fallback to the GL
     # TODO: Radical idea: Above is for truely random GC selection. Rare events. In general 'nearby' GCs
     #   will be close relations in the gene pool.
-    match_type: int = randint(0, _NUM_MATCH_TYPES - 1)
-    agc = tuple(gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs))
-    while not agc and match_type < _NUM_MATCH_TYPES - 1:
+    match_t: int = randint(0, _NUM_MATCH_TYPES - 1)
+    agc = tuple(gms.select(_MATCH_TYPES_SQL[match_t], literals=xputs))
+    while not agc and match_t < _NUM_MATCH_TYPES - 1:
         if _LOG_DEBUG:
             _logger.debug(
-                f"Proximity selection match_type {match_type} found no candidates."
+                f"Proximity selection match_type {match_t} found no candidates."
             )
-        match_type += 1
-        agc = tuple(gms.select(_MATCH_TYPES_SQL[match_type], literals=xputs))
+        match_t += 1
+        agc = tuple(gms.select(_MATCH_TYPES_SQL[match_t], literals=xputs))
+    if not agc and match_t == _NUM_MATCH_TYPES - 1:
+        agc = _interface_proximity_select_fail_safe()
     if _LOG_DEBUG:
-        _logger.debug(f"Proximity selection match_type {match_type} found a candidate.")
+        _logger.debug(f"Proximity selection match_type {match_t} found a candidate.")
         _logger.debug(f"Candidate: {agc[0]}")
     return agc[0]
 
