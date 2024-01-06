@@ -41,22 +41,20 @@ There are 2 wrapping cases: Stack (case 1) and Inverse stack (case 11). These ca
 ### Case 0: Stack
 |               |   |
 |---------------|---|
-| Rows present in TGC | I |
+| Rows present | O |
 | Rows not present | None |
-| Insert IGC above | Z | 
-
-TGC on top.
-
+| Insert IGC above | I | 
+IGC on top.
 ```mermaid
 %% Insertion Case 1: Stack
 flowchart TB
-    I["TGC[I]"]
+    I["IGC[I]"]
     subgraph RGC
         direction RL
-        GCA["A: TGC"]
-        GCB["B: IGC"]
+        GCA["A: IGC"]
+        GCB["B: TGC"]
     end
-    O["IGC[O]"]
+    O["TGC[O]"]
     I --> RGC --> O
 
 classDef newGC fill:#010,stroke:#333,stroke-width:4px
@@ -70,22 +68,25 @@ class GCB modified
 ```
 
 ### Case 11: Inverse Stack
+
 |               |   |
 |---------------|---|
-| Rows present | O |
+| Rows present in TGC | I |
 | Rows not present | None |
-| Insert IGC above | I | 
-IGC on top.
+| Insert IGC above | Z | 
+
+TGC on top.
+
 ```mermaid
 %% Insertion Case 11: Inverse Stack
 flowchart TB
-    I["IGC[I]"]
+    I["TGC[I]"]
     subgraph RGC
         direction RL
-        GCA["A: IGC"]
-        GCB["B: TGC"]
+        GCA["A: TGC"]
+        GCB["B: IGC"]
     end
-    O["TGC[O]"]
+    O["IGC[O]"]
     I --> RGC --> O
 
 classDef newGC fill:#010,stroke:#333,stroke-width:4px

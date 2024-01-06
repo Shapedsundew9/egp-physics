@@ -166,6 +166,7 @@ def _insert_graph_case_4(
     fig.update(iig.as_row("A"))
     fig.update(fig.direct_connect("B", "O"))
     fig.update(fig.append_connect("A", "O"))
+    rig.extend_src("A", iig)
 
 
 def _insert_graph_case_5(
@@ -178,6 +179,7 @@ def _insert_graph_case_5(
     fig.update(iig.as_row("B"))
     fig.update(fig.direct_connect("A", "O"))
     fig.update(fig.append_connect("B", "O"))
+    rig.extend_src("A", iig)
 
 
 def _insert_graph_case_6(
@@ -190,6 +192,7 @@ def _insert_graph_case_6(
     fig.update(iig.as_row("B"))
     fig.update(fig.direct_connect("A", "O"))
     fig.update(fig.append_connect("B", "O"))
+    rig.extend_src("B", iig)
 
 
 # Case 7, 8 & 9 are identical to case 4, 5 & 6
@@ -207,6 +210,7 @@ def _insert_graph_case_10(
     fig.update(iig.as_row("A"))
     fig.update(fig.direct_connect("B", "O"))
     fig.update(fig.append_connect("A", "O"))
+    rig.extend_src("B", iig)
 
 
 def _insert_graph_case_11(
@@ -249,11 +253,11 @@ def _insert_graph(
     # act on self rather than returning a dictionary to update (into self)
     if above_row == "I":
         rig: internal_graph = internal_graph()
-        rig.update(tig.copy_row("I", clean=True))
+        rig.update(iig.copy_row("I", clean=True))
         _insert_graph_case_0(tig, iig, rig)
     elif above_row == "Z":
         rig: internal_graph = internal_graph()
-        rig.update(iig.copy_row("I", clean=True))
+        rig.update(tig.copy_row("I", clean=True))
         _insert_graph_case_11(tig, iig, rig)
     elif not tgcg.has_row("A"):
         rig = deepcopy(tig)
@@ -350,13 +354,15 @@ def _insert_gc_case_2(tgc: aGC, igc: aGC, rgc: aGC) -> None:
     """Insert igc data into tgc case 2."""
     _logger.debug("Case 2")
     rgc["gca_ref"] = igc["ref"]
-    rgc["gcb_ref"] = tgc["gca_ref"]
+    # TGC could be a codon in which case row A is in the graph but not in the GC
+    rgc["gcb_ref"] = tgc["gca_ref"] if tgc["gca_ref"] else tgc["ref"]
 
 
 def _insert_gc_case_3(tgc: aGC, igc: aGC, rgc: aGC) -> None:
     """Insert igc data into tgc case 3."""
     _logger.debug("Case 3")
-    rgc["gca_ref"] = tgc["gca_ref"]
+    # TGC could be a codon in which case row A is in the graph but not in the GC
+    rgc["gca_ref"] = tgc["gca_ref"] if tgc["gca_ref"] else tgc["ref"]
     rgc["gcb_ref"] = igc["ref"]
 
 
@@ -445,8 +451,8 @@ def _recursive_insert_gc(gms: gene_pool, work_stack: WorkStack, stablize: bool =
         fgc: dGC = default_dict_gc(gms.next_reference)
         rgc: dGC = default_dict_gc(gms.next_reference)
         work: Work = work_stack.pop(0)
-        tgc = work[0]
-        igc = work[1]
+        tgc: aGC = work[0]
+        igc: aGC = work[1]
         above_row = work[2]
 
         if _LOG_DEBUG:

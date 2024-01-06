@@ -66,7 +66,7 @@ _REFERENCE: count = count(1)
 def reference_func(_: bool = False) -> int:
     """Return a new reference."""
     next_reference =  next(_REFERENCE)
-    assert next_reference < 1000, "Too many references generated: Likely an infinite loop in insertion."
+    assert next_reference < 100000, "Too many references generated: Likely an infinite loop in insertion."
     return next_reference
 
 
@@ -237,7 +237,7 @@ _CASE_RESULTS: dict[int, tuple[dict[Row, tuple[str, ...] | None] | None, ...]] =
             "F": None,
             "A": ("IGC", "IO"),
             "B": ("TGC", "A"),
-            "O": ("TGC", "A"),
+            "O": ("TGC", "A+"),
         },
     ),
     5: (
@@ -255,7 +255,7 @@ _CASE_RESULTS: dict[int, tuple[dict[Row, tuple[str, ...] | None] | None, ...]] =
             "F": None,
             "A": ("TGC", "A"),
             "B": ("IGC", "IO"),
-            "O": ("TGC", "A"),
+            "O": ("TGC", "A+"),
         },
     ),
     6: (
@@ -273,7 +273,7 @@ _CASE_RESULTS: dict[int, tuple[dict[Row, tuple[str, ...] | None] | None, ...]] =
             "F": None,
             "A": ("TGC", "B"),
             "B": ("IGC", "IO"),
-            "O": ("TGC", "B"),
+            "O": ("TGC", "B+"),
         },
     ),
     7: (
@@ -291,7 +291,7 @@ _CASE_RESULTS: dict[int, tuple[dict[Row, tuple[str, ...] | None] | None, ...]] =
             "F": None,
             "A": ("IGC", "IO"),
             "B": ("TGC", "A"),
-            "O": ("TGC", "A"),
+            "O": ("TGC", "A+"),
         },
     ),
     8: (
@@ -309,7 +309,7 @@ _CASE_RESULTS: dict[int, tuple[dict[Row, tuple[str, ...] | None] | None, ...]] =
             "F": None,
             "A": ("TGC", "A"),
             "B": ("IGC", "IO"),
-            "O": ("TGC", "A"),
+            "O": ("TGC", "A+"),
         },
     ),
     9: (
@@ -327,7 +327,7 @@ _CASE_RESULTS: dict[int, tuple[dict[Row, tuple[str, ...] | None] | None, ...]] =
             "F": None,
             "A": ("IGC", "IO"),
             "B": ("TGC", "B"),
-            "O": ("TGC", "B"),
+            "O": ("TGC", "B+"),
         },
     ),
     10: (
@@ -345,7 +345,7 @@ _CASE_RESULTS: dict[int, tuple[dict[Row, tuple[str, ...] | None] | None, ...]] =
             "F": None,
             "A": ("TGC", "B"),
             "B": ("IGC", "IO"),
-            "O": ("TGC", "B"),
+            "O": ("TGC", "B+"),
         },
     ),
     11: (
@@ -399,8 +399,14 @@ CODON_STR_GCG_DICT: dict = {
     "A": [["I", 0, ep_type_lookup["n2v"]["str"]], ["I", 1, ep_type_lookup["n2v"]["str"]]],
     "O": [["A", 0, ep_type_lookup["n2v"]["str"]]]
 }
+CODON_MIX_GCG_DICT: dict = {
+    "A": [["I", 0, ep_type_lookup["n2v"]["str"]], ["I", 1, ep_type_lookup["n2v"]["str"]], ["I", 0, ep_type_lookup["n2v"]["int"]], ["I", 1, ep_type_lookup["n2v"]["int"]]],
+    "O": [["A", 0, ep_type_lookup["n2v"]["str"]]]
+}
 CODON_INT_GCG = gc_graph(cast(ConnectionGraph, CODON_INT_GCG_DICT))
 CODON_STR_GCG = gc_graph(cast(ConnectionGraph, CODON_STR_GCG_DICT))
+CODON_MIX_GCG = gc_graph(cast(ConnectionGraph, CODON_MIX_GCG_DICT))
+
 
 def mock_ips(_, __) -> dGC:
     """Mock interface proximity select so that any steady state exception returns a GC that will not raise further exceptions."""
@@ -463,14 +469,29 @@ def test_gc_stack_case_11() -> None:
     assert rgc["gc_graph"].has_row("B")
 
 
-def test_unstable_rgc(monkeypatch) -> None:
+def test_unstable_1_rgc(monkeypatch) -> None:
     """Test the unstable RGC path.
 
-       This can be triggered by inserting a codon into a codon with incompatible interfaces.    
+       This can be triggered by inserting a codon into a codon with incompatible interfaces.
+       In this case no connections can be made to the inserted IGC from TGC[I]
     """
     monkeypatch.setattr(insertion, "_interface_proximity_select_fail_safe", lambda: (new_dgc(STUB_GCG), ))
     codon_a: dGC = new_dgc(CODON_STR_GCG, True)
     codon_b: dGC = new_dgc(CODON_INT_GCG, True)
+    rgc: xGC = gc_insert(_GMS, codon_a, codon_b, "A")  # type: ignore
+    assert rgc is not None
+
+
+def test_unstable_2_rgc(monkeypatch) -> None:
+    """Test the unstable RGC path.
+
+       This can be triggered by inserting a codon into a codon with incompatible interfaces.
+       In this case some connections can be made to the inserted IGC from TGC[I] but not all
+       Existing connections will be passed through to FGC
+    """
+    monkeypatch.setattr(insertion, "_interface_proximity_select_fail_safe", lambda: (new_dgc(STUB_GCG), ))
+    codon_a: dGC = new_dgc(CODON_STR_GCG, True)
+    codon_b: dGC = new_dgc(CODON_MIX_GCG, True)
     rgc: xGC = gc_insert(_GMS, codon_a, codon_b, "A")  # type: ignore
     assert rgc is not None
 
@@ -492,7 +513,7 @@ def test_gc_insert_all(i_case, tgc_variant, igc_variant, above_row) -> None:
         _logger.debug(f"TGC:\n {pformat(tgc)}")
         _logger.debug(f"IGC:\n {pformat(igc)}")
 
-    # Insert the IGC into the TGC with stablization disbaled. This is to avoid the steady state exception.
+    # Insert the IGC into the TGC with stablization disabled. This is to avoid the steady state exception.
     new_gc_definition: NewGCDef = _insert_gc(_GMS, tgc, igc, above_row, False)  # type: ignore
 
     # Check the new gc definition is valid
@@ -505,7 +526,7 @@ def test_gc_insert_all(i_case, tgc_variant, igc_variant, above_row) -> None:
     # 7. gc_graph validation
     expected_rgc, expected_fgc = _CASE_RESULTS[i_case]
     rgc, fgc_dict = new_gc_definition
-    fgc: dGC | None = cast(dGC, tuple(fgc_dict.values())[-1]) if fgc_dict else None
+    fgc: dGC | None = cast(dGC, tuple(fgc_dict.values())[-1 - (len(fgc_dict) > 3)]) if fgc_dict else None
 
     for xgc, expected_xgc, is_rgc in ((rgc, expected_rgc, True), (fgc, expected_fgc, False)):  # type: ignore
         if expected_xgc is None:
@@ -530,14 +551,18 @@ def test_gc_insert_all(i_case, tgc_variant, igc_variant, above_row) -> None:
                     case _:
                         raise ValueError(f"Unexpected source {xxgc_row[0]}")
                 xgc_if: tuple[list[int], list[int]] = xgc["gc_graph"].row_if(xgc_row)
-                xxgc_if: tuple[list[int], list[int]] = (
-                    xxgc["gc_graph"].row_if(cast(Row, xxgc_row[1]))
-                    if xxgc_row[1] != "IO"
-                    else (
-                        xxgc["gc_graph"].output_if(),
-                        xxgc["gc_graph"].input_if(),
-                    )
-                )
+
+                xxgc_if: tuple[list[int], list[int]]
+                if len(xxgc_row[1]) == 1:
+                    xxgc_if = xxgc["gc_graph"].row_if(cast(Row, xxgc_row[1]))
+                elif xxgc_row[1] == "IO":
+                    xxgc_if = (xxgc["gc_graph"].output_if(), xxgc["gc_graph"].input_if())
+                elif xxgc_row[1][1] == "+":
+                    xxgc_if = xxgc["gc_graph"].row_if(cast(Row, xxgc_row[1]))
+                    xxgc_if[0].extend(igc["gc_graph"].output_if())
+                else:
+                    raise ValueError(f"Unexpected row {xxgc_row[1]}")
+
                 _logger.debug(f"Expectations for {'FR'[is_rgc] + 'GC'} row {xgc_row}: {xxgc_row}")
                 _logger.debug(f"xgc (output, input) interface: {pformat(xgc_if)}")
                 _logger.debug(f"xxgc (output, input) interface: {pformat(xxgc_if)}")
