@@ -30,7 +30,7 @@ from json import dump, load
 from logging import DEBUG, INFO, Logger, NullHandler, getLogger
 from os.path import dirname, exists, join
 from pprint import pformat
-from random import choice, randint
+from random import choice, randint, seed
 from typing import Any, Callable, cast
 
 import pytest
@@ -42,6 +42,7 @@ from egp_types.egp_typing import (
     VALID_GRAPH_ROW_COMBINATIONS,
     ConnectionGraph,
     Row,
+    DestinationRow
 )
 from egp_types.ep_type import ep_type_lookup
 from egp_types.gc_graph import gc_graph
@@ -53,6 +54,8 @@ from tqdm import tqdm
 from egp_physics import insertion
 from egp_physics.egp_typing import NewGCDef
 from egp_physics.insertion import _insert_gc, gc_insert, gc_stack
+from egp_physics.insertion_work import insertion_work
+
 
 # Logging
 _logger: Logger = getLogger(__name__)
@@ -61,12 +64,20 @@ _LOG_DEBUG: bool = _logger.isEnabledFor(DEBUG)
 getLogger("surebrec").setLevel(INFO)
 
 
+# Deterministic random number generation
+seed(0)
+
+
+# Number of samples to generate for each variant
+NUM_SAMPLES: int = 20
+
+
 # Fake reference generator
 _REFERENCE: count = count(1)
 def reference_func(_: bool = False) -> int:
     """Return a new reference."""
     next_reference =  next(_REFERENCE)
-    assert next_reference < 100000, "Too many references generated: Likely an infinite loop in insertion."
+    assert next_reference < 200000, "Too many references generated: Likely an infinite loop in insertion."
     return next_reference
 
 
@@ -128,7 +139,7 @@ for case, reqs in _CASE_REQS.items():
 
 
 # Generate all combinations of TGC & IGC for each case
-_CASE_COMBOS: list[tuple[Any, ...]] = [(case, *combo) for case, variants in _CASE_VARIANTS.items() for combo in product(*variants)]
+_CASE_COMBOS: list[tuple[Any, ...]] = [(i, case, *combo) for i, (case, variants) in enumerate(_CASE_VARIANTS.items()) for combo in product(*variants)]
 _logger.debug(f"Case combos:\n{pformat(_CASE_COMBOS)}")
 
 
@@ -139,7 +150,6 @@ if not exists(filename):
     # 2. Create variants by randomly choosing a subset of required row end points
 
     # Create NUM_SAMPLES sample graphs for each variant.
-    NUM_SAMPLES: int = 10
     _VARIANT_SAMPLES: dict[str, list[gc_graph]] = {}
     for rseed, variant in enumerate(tqdm(VALID_GRAPH_ROW_COMBINATIONS, desc="Generating graphs")):
         gc_graph_list: list[gc_graph] = [
@@ -232,7 +242,7 @@ _CASE_RESULTS: dict[int, tuple[dict[Row, tuple[str, ...] | None] | None, ...]] =
             "O": ("TGC", "O"),
         },
         {
-            "I": ("TGC", "A"),
+            "I": ("TGC", "Ac"),
             "C": None,
             "F": None,
             "A": ("IGC", "IO"),
@@ -250,7 +260,7 @@ _CASE_RESULTS: dict[int, tuple[dict[Row, tuple[str, ...] | None] | None, ...]] =
             "O": ("TGC", "O"),
         },
         {
-            "I": ("TGC", "A"),
+            "I": ("TGC", "Ac"),
             "C": None,
             "F": None,
             "A": ("TGC", "A"),
@@ -264,11 +274,11 @@ _CASE_RESULTS: dict[int, tuple[dict[Row, tuple[str, ...] | None] | None, ...]] =
             "C": ("TGC", "C"),
             "F": None,
             "A": ("TGC", "A"),
-            "B": ("TGC", "B"),
+            "B": ("FGC", "IO"),
             "O": ("TGC", "O"),
         },
         {
-            "I": ("TGC", "B"),
+            "I": ("TGC", "Bc"),
             "C": None,
             "F": None,
             "A": ("TGC", "B"),
@@ -286,7 +296,7 @@ _CASE_RESULTS: dict[int, tuple[dict[Row, tuple[str, ...] | None] | None, ...]] =
             "O": ("TGC", "O"),
         },
         {
-            "I": ("TGC", "A"),
+            "I": ("TGC", "Ac"),
             "C": None,
             "F": None,
             "A": ("IGC", "IO"),
@@ -304,7 +314,7 @@ _CASE_RESULTS: dict[int, tuple[dict[Row, tuple[str, ...] | None] | None, ...]] =
             "O": ("TGC", "O"),
         },
         {
-            "I": ("TGC", "A"),
+            "I": ("TGC", "Ac"),
             "C": None,
             "F": None,
             "A": ("TGC", "A"),
@@ -322,7 +332,7 @@ _CASE_RESULTS: dict[int, tuple[dict[Row, tuple[str, ...] | None] | None, ...]] =
             "O": ("TGC", "O"),
         },
         {
-            "I": ("TGC", "B"),
+            "I": ("TGC", "Bc"),
             "C": None,
             "F": None,
             "A": ("IGC", "IO"),
@@ -340,7 +350,7 @@ _CASE_RESULTS: dict[int, tuple[dict[Row, tuple[str, ...] | None] | None, ...]] =
             "O": ("TGC", "O"),
         },
         {
-            "I": ("TGC", "B"),
+            "I": ("TGC", "Bc"),
             "C": None,
             "F": None,
             "A": ("TGC", "B"),
@@ -496,14 +506,18 @@ def test_unstable_2_rgc(monkeypatch) -> None:
     assert rgc is not None
 
 
-@pytest.mark.parametrize("i_case, tgc_variant, igc_variant, above_row", _CASE_COMBOS)
-def test_gc_insert_all(i_case, tgc_variant, igc_variant, above_row) -> None:
+@pytest.mark.parametrize("i, i_case, tgc_variant, igc_variant, above_row", _CASE_COMBOS * 3)
+def test_gc_insert_all(monkeypatch, i, i_case, tgc_variant, igc_variant, above_row) -> None:
     """Test all insertion cases for all combinations of IGC & TGC structures."""
     # Mock the interface proximity select so that any steady state exception
     # returns a GC that will not raise further exceptions.
 
+    seed(i)
     tgc: dGC = new_xgc(tgc_variant)
     igc: dGC = new_xgc(igc_variant)
+
+    # It is guaranteed some scenarios will generate a steady state exception.
+    monkeypatch.setattr(insertion, "_interface_proximity_select_fail_safe", lambda: (new_dgc(STUB_GCG), ))
 
     # The FGC reference must be greater than this else it is not an FGC...
     new_base_ref: int = reference_func()
@@ -514,7 +528,9 @@ def test_gc_insert_all(i_case, tgc_variant, igc_variant, above_row) -> None:
         _logger.debug(f"IGC:\n {pformat(igc)}")
 
     # Insert the IGC into the TGC with stablization disabled. This is to avoid the steady state exception.
-    new_gc_definition: NewGCDef = _insert_gc(_GMS, tgc, igc, above_row, False)  # type: ignore
+    new_gc_definition: NewGCDef
+    i_work: insertion_work
+    new_gc_definition, i_work = _insert_gc(_GMS, tgc, igc, above_row, False)  # type: ignore
 
     # Check the new gc definition is valid
     # 1. TGC inputs == RGC inputs
@@ -524,14 +540,23 @@ def test_gc_insert_all(i_case, tgc_variant, igc_variant, above_row) -> None:
     # 5. FGC interfaces are as defined.
     # 6. gc_graph normalization
     # 7. gc_graph validation
-    expected_rgc, expected_fgc = _CASE_RESULTS[i_case]
+    expected_rgc: dict[Row, tuple[str, ...] | None] | None
+    expected_fgc_dict: dict[Row, tuple[str, ...] | None] | None
+    fgc_dict: dict[int, aGC]
+    expected_rgc, expected_fgc_dict = _CASE_RESULTS[i_case]
     rgc, fgc_dict = new_gc_definition
-    fgc: dGC | None = cast(dGC, tuple(fgc_dict.values())[-1 - (len(fgc_dict) > 3)]) if fgc_dict else None
 
-    for xgc, expected_xgc, is_rgc in ((rgc, expected_rgc, True), (fgc, expected_fgc, False)):  # type: ignore
+    # If there was a steady state exception in the FGC the TGC in the new work package will
+    # be the unstable FGC that matches the expected interface
+    fgc: insertion_work | aGC | None         
+    fgc = i_work.fgc if i_work._fgc is None else i_work._fgc.tgc  # pylint: disable=protected-access
+
+    # Iterate through RGC & FGC and make sure we have what we expect
+    for xgc, expected_xgc, is_rgc in ((rgc, expected_rgc, True), (fgc, expected_fgc_dict, False)):  # type: ignore
         if expected_xgc is None:
             continue
-        assert xgc is not None
+        # Insertion work has been resolved so xgc must be a GC
+        assert xgc is not None and not isinstance(xgc, insertion_work)
         assert xgc["ref"] > new_base_ref
         for xgc_row, xxgc_row in expected_xgc.items():
             # If the expected row is None then it must not exist and gc_grpah.has_x is False
@@ -540,17 +565,17 @@ def test_gc_insert_all(i_case, tgc_variant, igc_variant, above_row) -> None:
                 continue
             # The row may exist & if it does it must match the expected row
             if xgc["gc_graph"].has_row(xgc_row):
-                assert fgc is not None
                 match xxgc_row[0]:
                     case "TGC":
                         xxgc: dGC | None = tgc
                     case "IGC":
                         xxgc = igc
                     case "FGC":
-                        xxgc = fgc
+                        xxgc = cast(dGC, fgc)
                     case _:
                         raise ValueError(f"Unexpected source {xxgc_row[0]}")
                 xgc_if: tuple[list[int], list[int]] = xgc["gc_graph"].row_if(xgc_row)
+                assert xxgc is not None
 
                 xxgc_if: tuple[list[int], list[int]]
                 if len(xxgc_row[1]) == 1:
@@ -558,8 +583,12 @@ def test_gc_insert_all(i_case, tgc_variant, igc_variant, above_row) -> None:
                 elif xxgc_row[1] == "IO":
                     xxgc_if = (xxgc["gc_graph"].output_if(), xxgc["gc_graph"].input_if())
                 elif xxgc_row[1][1] == "+":
-                    xxgc_if = xxgc["gc_graph"].row_if(cast(Row, xxgc_row[1]))
+                    xxgc_if = xxgc["gc_graph"].row_if(cast(Row, xxgc_row[1][0]))
                     xxgc_if[0].extend(igc["gc_graph"].output_if())
+                    _logger.debug(f"Extended interface xxgc row {xxgc_row[1][0]} interface (output, input): {xxgc_if}")
+                elif xxgc_row[1][1] == "c":
+                    xxgc_if = ([], xxgc["gc_graph"].connected_row_if(cast(DestinationRow, xxgc_row[1][0])))
+                    _logger.debug(f"Connected interface xxgc row {xxgc_row[1][0]} interface (output, input): {xxgc_if}")
                 else:
                     raise ValueError(f"Unexpected row {xxgc_row[1]}")
 
@@ -567,7 +596,13 @@ def test_gc_insert_all(i_case, tgc_variant, igc_variant, above_row) -> None:
                 _logger.debug(f"xgc (output, input) interface: {pformat(xgc_if)}")
                 _logger.debug(f"xxgc (output, input) interface: {pformat(xxgc_if)}")
                 if xgc_row in SOURCE_ROWS:
+                    if not (xgc_if[not (xxgc_row[1] != "I" and xgc_row == "I")] == xxgc_if[1]):
+                        _logger.debug(f"fgc_dict: {fgc_dict}")
+                        _logger.debug(f"Insertion work:\n{i_work.mermaid_chart()}")
                     assert xgc_if[not (xxgc_row[1] != "I" and xgc_row == "I")] == xxgc_if[1], f"Expectations for row {xgc_row}: {xxgc_row}"
                 if xgc_row in DESTINATION_ROWS:
+                    if not (xgc_if[xxgc_row[1] != "O" and xgc_row == "O"] == xxgc_if[0]):
+                        _logger.debug(f"fgc_dict: {fgc_dict}")
+                        _logger.debug(f"Insertion work:\n{i_work.mermaid_chart()}")
                     assert xgc_if[xxgc_row[1] != "O" and xgc_row == "O"] == xxgc_if[0], f"Expectations for row {xgc_row}: {xxgc_row}"
                 _logger.debug("PASSED")

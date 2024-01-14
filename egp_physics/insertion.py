@@ -6,20 +6,20 @@ from random import randint
 
 from egp_stores.gene_pool import gene_pool
 from egp_types.xGC import xGC
-from egp_types.gc_graph import DST_EP, gc_graph
+from egp_types.gc_graph import DST_EP, SRC_EP, gc_graph
 from egp_types.internal_graph import internal_graph
 from egp_types.reference import ref_str
 from egp_types.ep_type import interface_definition, vtype
 from egp_types.aGC import aGC
 from egp_types.dGC import dGC
 from egp_types.egp_typing import Row, VALID_ROW_SOURCES
-from .egp_typing import WorkStack, Work, NewGCDef, InsertRow
+from .egp_typing import NewGCDef, InsertRow
+from .insertion_work import insertion_work
 
 
 _logger: Logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
 _LOG_DEBUG: bool = _logger.isEnabledFor(DEBUG)
-_SLASH_N = "\n"
 
 
 # Filler
@@ -124,16 +124,17 @@ def _insert_graph_case_0(
     rig.update(tig.as_row("B"))
     rig.update(tig.copy_row("O", True))
     rig.update(rig.direct_connect("I", "A"))
+    rig.complete_dst_references("A")
     rig.update(rig.direct_connect("B", "O"))
+    rig.complete_dst_references("O")
 
 
 def _insert_graph_case_1(
-    tig: internal_graph, iig: internal_graph, rig: internal_graph
+    _: internal_graph, iig: internal_graph, rig: internal_graph
 ) -> None:
     """Insert igc into tgc case 1."""
     _logger.debug("Case 1: No row A, B or F")
     rig.update(iig.as_row("A"))
-    rig.update(tig.copy_row("O"))
 
 
 def _insert_graph_case_2(
@@ -143,16 +144,16 @@ def _insert_graph_case_2(
     _logger.debug("Case 2: No row F or B and insert above A")
     rig.update(iig.as_row("A"))
     rig.update(tig.move_row("A", "B"))
-    rig.update(tig.copy_row("O"))
     rig.redirect_refs("O", DST_EP, "A", "B")
+    rig.redirect_refs("I", SRC_EP, "A", "B")
+    rig.redirect_refs("C", SRC_EP, "A", "B")
 
 
 def _insert_graph_case_3(
-    tig: internal_graph, iig: internal_graph, rig: internal_graph
+    _: internal_graph, iig: internal_graph, rig: internal_graph
 ) -> None:
     """Insert igc into tgc case 3."""
     _logger.debug("Case 3: No row F or B and insert below A")
-    rig.update(tig.copy_rows(("A", "O")))
     rig.update(iig.as_row("B"))
 
 
@@ -163,8 +164,10 @@ def _insert_graph_case_4(
     _logger.debug("Case 4: Has rows A & B and insert above A")
     fig.update(tig.pass_thru("A", "B", rig.strip_unconnected_dst_eps("A")))
     fig.update(tig.move_row("A", "B", clean=True))
+    fig.complete_src_references("I")
     fig.update(iig.as_row("A"))
     fig.update(fig.direct_connect("B", "O"))
+    fig.complete_dst_references("O")
     fig.update(fig.append_connect("A", "O"))
     rig.extend_src("A", iig)
 
@@ -176,8 +179,10 @@ def _insert_graph_case_5(
     _logger.debug("Case 5: Has rows A & B and insert above B")
     fig.update(tig.pass_thru("A", "A", rig.strip_unconnected_dst_eps("A")))
     fig.update(tig.copy_row("A", clean=True))
+    fig.complete_src_references("I")
     fig.update(iig.as_row("B"))
     fig.update(fig.direct_connect("A", "O"))
+    fig.complete_dst_references("O")
     fig.update(fig.append_connect("B", "O"))
     rig.extend_src("A", iig)
 
@@ -189,8 +194,10 @@ def _insert_graph_case_6(
     _logger.debug("Case 6: Has rows A & B and insert above O")
     fig.update(tig.pass_thru("B", "A", rig.strip_unconnected_dst_eps("B")))
     fig.update(tig.move_row("B", "A", clean=True))
+    fig.complete_src_references("I")
     fig.update(iig.as_row("B"))
     fig.update(fig.direct_connect("A", "O"))
+    fig.complete_dst_references("O")
     fig.update(fig.append_connect("B", "O"))
     rig.extend_src("B", iig)
 
@@ -207,8 +214,10 @@ def _insert_graph_case_10(
     """Insert igc into tgc case 10."""
     fig.update(tig.pass_thru("B", "B", rig.strip_unconnected_dst_eps("B")))
     fig.update(tig.copy_row("B", clean=True))
+    fig.complete_src_references("I")
     fig.update(iig.as_row("A"))
     fig.update(fig.direct_connect("B", "O"))
+    fig.complete_dst_references("O")
     fig.update(fig.append_connect("A", "O"))
     rig.extend_src("B", iig)
 
@@ -223,7 +232,9 @@ def _insert_graph_case_11(
     rig.update(iig.as_row("B"))
     rig.update(iig.copy_row("O", True))
     rig.update(rig.direct_connect("I", "A"))
+    rig.complete_dst_references("A")
     rig.update(rig.direct_connect("B", "O"))
+    rig.complete_dst_references("O")
 
 
 def _insert_graph(
@@ -266,7 +277,7 @@ def _insert_graph(
         if not tgcg.has_row("B"):
             if above_row == "A":
                 rig: internal_graph = internal_graph()
-                rig.update(tig.copy_rows(("I", "C", "O"), clean=True))
+                rig.update(tig.copy_rows(("I", "C", "O")))
                 _insert_graph_case_2(tig, iig, rig)
             else:
                 rig = deepcopy(tig)
@@ -291,32 +302,45 @@ def _insert_graph(
             _insert_graph_case_10(tig, iig, rig, fig)
 
     # Pre-completed logging
-    if _LOG_DEBUG:
-        _logger.debug(f"tgc ({type(tgcg)}):\n{tgcg.i_graph}")
-        _logger.debug(f"igc ({type(tgcg)}):\n{igcg.i_graph}")
-        _logger.debug(f"Pre-completed rig ({type(rig)}):\n{rig}")
-        _logger.debug(f"Pre-completed fig ({type(fig)}):\n{fig}")
+    # if _LOG_DEBUG:
+    #    _logger.debug(f"tgc ({type(tgcg)}):\n{tgcg.i_graph}")
+    #    _logger.debug(f"igc ({type(tgcg)}):\n{igcg.i_graph}")
+    #    _logger.debug(f"Pre-completed rig ({type(rig)}):\n{rig}")
+    #    _logger.debug(f"Pre-completed fig ({type(fig)}):\n{fig}")
 
     # Tidy up dangling references and normalize (make new connections)
-    rig.complete_references()
     rgc_gc_graph = gc_graph(i_graph=rig)
     rgc_gc_graph.normalize()
     if fig:
-        fig.complete_references()
         fgc_gc_graph = gc_graph(i_graph=fig)
         fgc_gc_graph.normalize()
     else:
         fgc_gc_graph = gc_graph()
 
-    # Post-completed logging
+    # Post-completed debug logging
     if _LOG_DEBUG:
-        _logger.debug(f"Completed rig:\n{rig}")
-        _logger.debug(f"Completed fig:\n{fig}")
+        valid_rgc: bool = rgc_gc_graph.validate()
+        valid_fgc: bool = fgc_gc_graph.validate()
+        if not valid_rgc or not valid_fgc:
+            if not valid_rgc:
+                _logger.error("Invalid graph RGC graph.")
+                _logger.error(f"Completed rig:\n{rig}")
+            else:
+                _logger.debug(f"Completed rig:\n{rig}")
+            if not valid_fgc:
+                _logger.error("Invalid graph FGC graph.")
+                _logger.error(f"Completed fig:\n{fig}")
+            else:
+                _logger.debug(f"Completed fig:\n{fig}")
+            _logger.debug(f"tig:\n{tig}")
+            _logger.debug(f"iig:\n{iig}")
+            assert valid_rgc, "Invalid RGC graph."
+            assert valid_fgc, "Invalid FGC graph."
 
     return rgc_gc_graph, fgc_gc_graph
 
 
-def _insert_gc(gms: gene_pool, tgc: aGC, igc: aGC, above_row: InsertRow, stabilize: bool = True) -> NewGCDef:
+def _insert_gc(gms: gene_pool, tgc: aGC, igc: aGC, above_row: InsertRow, stabilize: bool = True) -> tuple[NewGCDef, insertion_work]:
     """Insert igc into tgc above row 'above_row'.
 
     Args
@@ -334,63 +358,70 @@ def _insert_gc(gms: gene_pool, tgc: aGC, igc: aGC, above_row: InsertRow, stabili
     """
     if _LOG_DEBUG:
         _logger.debug("Inserting into Target GC.")
-    return _recursive_insert_gc(gms, [(tgc, igc, above_row)], stabilize)
+    return _recursive_insert_gc(gms, [insertion_work(tgc, igc, None, None, None, above_row)], stabilize)
 
 
-def _insert_gc_case_0(tgc: aGC, igc: aGC, rgc: aGC) -> None:
+def _insert_gc_case_0(tgc: aGC, igc: aGC, rgc: aGC) -> bool | None:
     """Insert igc data into tgc case 0."""
     _logger.debug("Case 0: Stack")
     rgc["gca_ref"] = tgc["ref"]
     rgc["gcb_ref"] = igc["ref"]
+    return None
 
 
-def _insert_gc_case_1(igc: aGC, rgc: aGC) -> None:
+def _insert_gc_case_1(igc: aGC, rgc: aGC) -> bool | None:
     """Insert igc data into tgc case 1."""
     _logger.debug("Case 1")
     rgc["gca_ref"] = igc["ref"]
+    return None
 
 
-def _insert_gc_case_2(tgc: aGC, igc: aGC, rgc: aGC) -> None:
+def _insert_gc_case_2(tgc: aGC, igc: aGC, rgc: aGC) -> bool | None:
     """Insert igc data into tgc case 2."""
     _logger.debug("Case 2")
     rgc["gca_ref"] = igc["ref"]
     # TGC could be a codon in which case row A is in the graph but not in the GC
     rgc["gcb_ref"] = tgc["gca_ref"] if tgc["gca_ref"] else tgc["ref"]
+    return None
 
 
-def _insert_gc_case_3(tgc: aGC, igc: aGC, rgc: aGC) -> None:
+def _insert_gc_case_3(tgc: aGC, igc: aGC, rgc: aGC) -> bool | None:
     """Insert igc data into tgc case 3."""
     _logger.debug("Case 3")
     # TGC could be a codon in which case row A is in the graph but not in the GC
     rgc["gca_ref"] = tgc["gca_ref"] if tgc["gca_ref"] else tgc["ref"]
     rgc["gcb_ref"] = igc["ref"]
+    return None
 
 
-def _insert_gc_case_4(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> None:
-    """Insert igc data into tgc case 4."""
+def _insert_gc_case_4(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> bool | None:
+    """Insert igc data into tgc case 4 return True to indicate FGC is in GCA."""
     _logger.debug("Case 4 or 7")
     fgc["gca_ref"] = igc["ref"]
     fgc["gcb_ref"] = tgc["gca_ref"]
     rgc["gca_ref"] = fgc["ref"]
     rgc["gcb_ref"] = tgc["gcb_ref"]
+    return True
 
 
-def _insert_gc_case_5(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> None:
-    """Insert igc data into tgc case 5."""
+def _insert_gc_case_5(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> bool | None:
+    """Insert igc data into tgc case 5 return False to indicate FGC is in GCB."""
     _logger.debug("Case 5 or 8")
     fgc["gca_ref"] = tgc["gca_ref"]
     fgc["gcb_ref"] = igc["ref"]
     rgc["gca_ref"] = fgc["ref"]
     rgc["gcb_ref"] = tgc["gcb_ref"]
+    return False
 
 
-def _insert_gc_case_6(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> None:
-    """Insert igc data into tgc case 6."""
+def _insert_gc_case_6(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> bool | None:
+    """Insert igc data into tgc case 6 return False to indicate FGC is in GCB"""
     _logger.debug("Case 6 or 9")
     fgc["gca_ref"] = tgc["gcb_ref"]
     fgc["gcb_ref"] = igc["ref"]
     rgc["gca_ref"] = tgc["gca_ref"]
     rgc["gcb_ref"] = fgc["ref"]
+    return False
 
 
 # Case 7, 8 & 9 are identical to case 4, 5 & 6
@@ -399,23 +430,25 @@ _insert_gc_case_8 = _insert_gc_case_5
 _insert_gc_case_9 = _insert_gc_case_6
 
 
-def _insert_gc_case_10(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> None:
-    """Insert igc data into tgc case 10."""
+def _insert_gc_case_10(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> bool | None:
+    """Insert igc data into tgc case 10 return False to indicate FGC is in GCB"""
     _logger.debug("Case 10")
     rgc["gca_ref"] = tgc["gca_ref"]
     rgc["gcb_ref"] = fgc["ref"]
     fgc["gca_ref"] = igc["ref"]
     fgc["gcb_ref"] = tgc["gcb_ref"]
+    return False
 
 
-def _insert_gc_case_11(tgc: aGC, igc: aGC, rgc: aGC) -> None:
+def _insert_gc_case_11(tgc: aGC, igc: aGC, rgc: aGC) -> bool | None:
     """Insert igc data into tgc case 11."""
     _logger.debug("Case 11: Inverse Stack")
     rgc["gca_ref"] = igc["ref"]
     rgc["gcb_ref"] = tgc["ref"]
+    return None
 
 
-def _recursive_insert_gc(gms: gene_pool, work_stack: WorkStack, stablize: bool = True) -> NewGCDef:
+def _recursive_insert_gc(gms: gene_pool, work_stack: list[insertion_work], stablize: bool = True) -> tuple[NewGCDef, insertion_work]:
     """Recursively insert GC's until the target GC is stable.
 
     A work stack is used to avoid actual recursion.
@@ -433,27 +466,23 @@ def _recursive_insert_gc(gms: gene_pool, work_stack: WorkStack, stablize: bool =
         return value, fgc to the back and tgc to the front, thus when the function
         returns the correct tgc will be at the head of the fgc_list.
 
-        Args
-        ----
-        work_stack: List of (Target GC, Insert GC, above row) worl to do
-
         Returns
         -------
         A new GC definition structure.
     """
     fgc_dict: dict[int, aGC] = {}
-    new_tgc_flag: bool = False
     new_tgc: dGC = default_dict_gc(int)
+    original_work: insertion_work = work_stack[0] if work_stack else insertion_work(new_tgc, new_tgc, None, None, None, "A")
     while work_stack:
         if _LOG_DEBUG:
             _logger.debug(f"Work stack depth: {len(work_stack)}")
 
         fgc: dGC = default_dict_gc(gms.next_reference)
         rgc: dGC = default_dict_gc(gms.next_reference)
-        work: Work = work_stack.pop(0)
-        tgc: aGC = work[0]
-        igc: aGC = work[1]
-        above_row = work[2]
+        work: insertion_work = work_stack.pop(0)
+        tgc: aGC = work.tgc
+        igc: aGC = work.igc
+        above_row = work.above_row
 
         if _LOG_DEBUG:
             _logger.debug(
@@ -469,18 +498,16 @@ def _recursive_insert_gc(gms: gene_pool, work_stack: WorkStack, stablize: bool =
         fgcg: gc_graph
         rgcg: gc_graph
         rgcg, fgcg = _insert_graph(tgcg, igcg, above_row)
-        rgcg_steady: bool = rgcg.normalize()
-        fgcg_steady: bool = False
+        rgcg_stable: bool = rgcg.is_stable()
+        fgcg_stable: bool = False
         if fgcg:
-            fgcg_steady = fgcg.normalize()
-            if _LOG_DEBUG:
-                _logger.debug(f"Normalized fgc:\n{fgcg.i_graph}")
+            fgcg_stable = fgcg.is_stable()
+            # _logger.debug(f"Normalized fgc:\n{fgcg.i_graph}")
             fgc["graph"] = fgcg.app_graph
             fgc["gc_graph"] = fgcg
             fgc["ancestor_a_ref"] = igc["ref"]
             fgc["ancestor_b_ref"] = tgc["ref"]
-        if _LOG_DEBUG:
-            _logger.debug(f"Normalized rgc:\n{rgcg.i_graph}")
+            # _logger.debug(f"Normalized rgc:\n{rgcg.i_graph}")
         rgc["graph"] = rgcg.app_graph
         rgc["gc_graph"] = rgcg
         rgc["ancestor_a_ref"] = tgc["ref"]
@@ -490,100 +517,59 @@ def _recursive_insert_gc(gms: gene_pool, work_stack: WorkStack, stablize: bool =
         # The insert_gc is always referenced in the tree of the final rgc
         fgc_dict[igc["ref"]] = igc
         fgc_dict[tgc["ref"]] = tgc
+        fgc_in_gca: bool | None = None
         if above_row == "I":
-            _insert_gc_case_0(tgc, igc, rgc)
+            fgc_in_gca = _insert_gc_case_0(tgc, igc, rgc)
         elif above_row == "Z":
-            _insert_gc_case_11(tgc, igc, rgc)
+            fgc_in_gca = _insert_gc_case_11(tgc, igc, rgc)
         elif not tgcg.has_row("A"):
-            _insert_gc_case_1(igc, rgc)
+            fgc_in_gca = _insert_gc_case_1(igc, rgc)
         elif not tgcg.has_row("F"):
             if not tgcg.has_row("B"):
                 if above_row == "A":
-                    _insert_gc_case_2(tgc, igc, rgc)
+                    fgc_in_gca = _insert_gc_case_2(tgc, igc, rgc)
                 else:
-                    _insert_gc_case_3(tgc, igc, rgc)
+                    fgc_in_gca = _insert_gc_case_3(tgc, igc, rgc)
             else:
                 if above_row == "A":
-                    _insert_gc_case_4(tgc, igc, rgc, fgc)
+                    fgc_in_gca = _insert_gc_case_4(tgc, igc, rgc, fgc)
                 elif above_row == "B":
-                    _insert_gc_case_5(tgc, igc, rgc, fgc)
+                    fgc_in_gca = _insert_gc_case_5(tgc, igc, rgc, fgc)
                 else:
-                    _insert_gc_case_6(tgc, igc, rgc, fgc)
+                    fgc_in_gca = _insert_gc_case_6(tgc, igc, rgc, fgc)
         else:
             if above_row == "A":
-                _insert_gc_case_7(tgc, igc, rgc, fgc)
+                fgc_in_gca = _insert_gc_case_7(tgc, igc, rgc, fgc)
             elif above_row == "O":
-                _insert_gc_case_8(tgc, igc, rgc, fgc)
+                fgc_in_gca = _insert_gc_case_8(tgc, igc, rgc, fgc)
             elif above_row == "B":
-                _insert_gc_case_9(tgc, igc, rgc, fgc)
+                fgc_in_gca = _insert_gc_case_9(tgc, igc, rgc, fgc)
             elif above_row == "P":
-                _insert_gc_case_10(tgc, igc, rgc, fgc)
+                fgc_in_gca = _insert_gc_case_10(tgc, igc, rgc, fgc)
 
-        # rgc['ref'] must be new & replace any previous mentions
-        # of target_gc['ref'] in fgc_dict[*][...ref fields...]
-        # and the new_tgc if it is defined.
-        #
-        # In the case where target_gc is unstable it is not in fgc_dict
-        # but will appear
-        # TODO: There must be a more efficient way of doing this
-        # FIXME: I think this breaks if tgc == igc
-        # IDEA: Could we use a data class for references?
-        new_ref: int = rgc["ref"]
-        old_ref: int = tgc["ref"]
-        if _LOG_DEBUG:
-            _logger.debug(f"Replacing {ref_str(old_ref)} with {ref_str(new_ref)}.")
-        for nfgc in fgc_dict.values():
-            for ref in ("gca_ref", "gcb_ref", "ancestor_a_ref", "ancestor_b_ref"):
-                if nfgc[ref] == old_ref:
-                    nfgc[ref] = new_ref
-        if new_tgc_flag:
-            for ref in ("gca_ref", "gcb_ref", "ancestor_a_ref", "ancestor_b_ref"):
-                if new_tgc[ref] == old_ref:
-                    new_tgc[ref] = new_ref
-
-        # Check we have valid graphs
-        # FGC is added to the work stack ahead of RGC
-        # which ensures the new TGC is correctly set
-        # (i.e. does not end up being the RGC of an unstable FGC)
-        if fgcg:
-            if not fgcg_steady:
+        if fgc_in_gca is not None:
+            if not fgcg_stable:
+                work.fgc = steady_state_exception(gms, fgc)
+                work_stack.insert(0, work.fgc)
                 if _LOG_DEBUG:
                     _logger.debug(f"FGC ref {ref_str(fgc['ref'])} is unstable.")
-                work_stack.insert(0, steady_state_exception(gms, fgc))
             else:
-                if _LOG_DEBUG:
-                    assert fgcg.validate(), "FGC validation failed."
-                    _logger.debug(f"FGC ref {ref_str(fgc['ref'])} added to fgc_dict.")
-                fgc_dict[fgc["ref"]] = fgc
+                work.fgc = fgc
+            work.gca = fgc_in_gca
 
-        # We may not want to immediately stabilise the graph
-        if not rgcg_steady and stablize:
+        if not rgcg_stable and stablize:
+            work.rgc = steady_state_exception(gms, rgc)
+            work_stack.insert(0, work.rgc)
             if _LOG_DEBUG:
                 _logger.debug(f"RGC ref {ref_str(rgc['ref'])} is unstable.")
-            work_stack.insert(0, steady_state_exception(gms, rgc))
-        elif not new_tgc_flag:
-            if _LOG_DEBUG:
-                assert rgcg.validate(), "RGC validation failed."
-                _logger.debug(f"Resultant GC defined:\n{rgc}")
-            new_tgc_flag = True
-            new_tgc = rgc
         else:
-            if _LOG_DEBUG:
-                assert rgcg.validate(), "RGC validation failed."
-                _logger.debug(f"RGC ref {ref_str(rgc['ref'])} added to fgc_dict.")
-            # Order of addition important.
-            fgc_dict[rgc["ref"]] = rgc
+            work.rgc = rgc
 
-        if _LOG_DEBUG:
-            _logger.debug(f"fgc_dict: {[ref_str(x) for x in fgc_dict]}")
-
+    work_dict: dict[int, aGC] = original_work.resolve()
     if _LOG_DEBUG:
-        _logger.debug(
-            f"fgc_dict details:\n{_SLASH_N.join(ref_str(k) + ':' + _SLASH_N + str(v) for k, v in fgc_dict.items())}"
-        )
-        # TODO: target_gc & new_tgc interface must be the same. Validate.
+        _logger.debug(f"Original work:\n{original_work}")
 
-    return (new_tgc, fgc_dict)
+    return (original_work.rgc, work_dict), original_work  # type: ignore
 
 
 def gc_insert(
@@ -609,7 +595,9 @@ def gc_insert(
     -------
     The GC created as a result of the insertion.
     """
-    new_gc_definition: NewGCDef = _insert_gc(gms, tgc, igc, above_row)
+    new_gc_definition: NewGCDef
+    _: insertion_work
+    new_gc_definition, _ = _insert_gc(gms, tgc, igc, above_row)
     gms.pool[new_gc_definition[0]["ref"]] = new_gc_definition[0]
     gms.pool.update(new_gc_definition[1])
     return gms.pool[new_gc_definition[0]["ref"]]
@@ -632,7 +620,9 @@ def gc_stack(gms: gene_pool, bottom_gc: aGC, top_gc: aGC, invert=False) -> xGC:
     -------
     rgc: Resultant GC with a valid graph
     """
-    new_gc_definition: NewGCDef = _insert_gc(gms, bottom_gc, top_gc, ("I", "Z")[invert])
+    new_gc_definition: NewGCDef
+    _: insertion_work
+    new_gc_definition, _ = _insert_gc(gms, bottom_gc, top_gc, ("I", "Z")[invert])
     gms.pool[new_gc_definition[0]["ref"]] = new_gc_definition[0]
     gms.pool.update(new_gc_definition[1])
     return gms.pool[new_gc_definition[0]["ref"]]
@@ -716,7 +706,7 @@ def interface_proximity_select(
     return agc[0]
 
 
-def steady_state_exception(gms: gene_pool, fgc: aGC) -> Work:
+def steady_state_exception(gms: gene_pool, fgc: aGC) -> insertion_work:
     """Define what GC must be inserted to complete or partially complete the fgc graph.
 
     fgc is analysed to determine what end point destinations are unconnected and the highest row
@@ -759,4 +749,4 @@ def steady_state_exception(gms: gene_pool, fgc: aGC) -> Work:
 
     # Find a gc based on the criteria
     insert_gc: aGC = interface_proximity_select(gms, xputs)
-    return (fgc, insert_gc, cast(InsertRow, above_row))
+    return insertion_work(fgc, insert_gc, None, None, None, cast(InsertRow, above_row))
