@@ -32,9 +32,7 @@ _PGC_BHPT_GP_ENTRY_HISTORY: NDArray[int8] = zeros(_BHPT_C_LENGTH, dtype=int8)
 _PGC_BHPT_GP_ENTRY_HISTORY[_BHPT_C_LENGTH // 4 :] = 1
 _PGC_BHPT_WEIGHTS: NDArray[double] = default_state_weights(_BHPT_C_LENGTH)
 _PGC_BHPT_WEIGHTS_SUM: double = _PGC_BHPT_WEIGHTS.sum()
-_PGC_FITNESS_MAPPING_TO_HISTORY: NDArray[int8] = zeros(
-    (128, _BHPT_C_LENGTH), dtype=int8
-)
+_PGC_FITNESS_MAPPING_TO_HISTORY: NDArray[int8] = zeros((128, _BHPT_C_LENGTH), dtype=int8)
 
 
 # Create a look up table mapping pGC fitness to BHPT history (consideration length)
@@ -97,9 +95,7 @@ class pgc_bhpt(binary_history_probability_table):
         idx: int = self.insert()
         ref: int64 = pgc["ref"]
         self._refs[idx] = ref
-        super().__setitem__(idx, _PGC_FITNESS_MAPPING_TO_HISTORY[
-            int(pgc["pgc_fitness"][self._depth] * 127)
-        ])
+        super().__setitem__(idx, _PGC_FITNESS_MAPPING_TO_HISTORY[int(pgc["pgc_fitness"][self._depth] * 127)])
         return ref
 
     def get(self) -> int64:

@@ -60,9 +60,7 @@ class binary_history_probability_table:
         if c_length < 1:
             raise ValueError("Consideration length (c_length or N) must be > 0.")
         if c_length > h_length:
-            raise ValueError(
-                "Consideration length (c_length or N) must be <= history length (h_length or L)."
-            )
+            raise ValueError("Consideration length (c_length or N) must be <= history length (h_length or L).")
         if int(log2(size) + c_length * 2 / 3) + 1 > 56:
             _logger.warning(
                 "BHPT size * consideration length may exceed 2**56-1 reducing or eliminating the influence of the oldest states."
@@ -76,9 +74,7 @@ class binary_history_probability_table:
         self._state_weights: NDArray[double] = self._default_state_weights()
         self._probabilities: NDArray[double] = zeros(size, dtype=double)
         self._defer: bool = defer
-        self._modified: bool = (
-            True  # Forces calculation of probabilities on first get()
-        )
+        self._modified: bool = True  # Forces calculation of probabilities on first get()
 
     def __repr__(self) -> str:
         """Returns the string representation of the BHPT."""
@@ -91,9 +87,7 @@ class binary_history_probability_table:
         """Returns the history at the given index."""
         return self._h_table[index]
 
-    def __setitem__(
-        self, index: int, state: bool | list[int | bool] | NDArray[int8]
-    ) -> None:
+    def __setitem__(self, index: int, state: bool | list[int | bool] | NDArray[int8]) -> None:
         """Sets the most recent state history at the given index.
 
         If state is a list or NDArray, the most recent state is the last element in the list.

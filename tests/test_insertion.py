@@ -35,15 +35,7 @@ from typing import Any, Callable, cast
 
 import pytest
 from egp_types.dGC import dGC
-from egp_types.egp_typing import (
-    DESTINATION_ROWS,
-    ROWS,
-    SOURCE_ROWS,
-    VALID_GRAPH_ROW_COMBINATIONS,
-    ConnectionGraph,
-    Row,
-    DestinationRow
-)
+from egp_types.egp_typing import DESTINATION_ROWS, ROWS, SOURCE_ROWS, VALID_GRAPH_ROW_COMBINATIONS, ConnectionGraph, Row, DestinationRow
 from egp_types.ep_type import ep_type_lookup
 from egp_types.gc_graph import gc_graph
 from egp_types.xGC import xGC
@@ -74,9 +66,11 @@ NUM_SAMPLES: int = 20
 
 # Fake reference generator
 _REFERENCE: count = count(1)
+
+
 def reference_func(_: bool = False) -> int:
     """Return a new reference."""
-    next_reference =  next(_REFERENCE)
+    next_reference = next(_REFERENCE)
     assert next_reference < 200000, "Too many references generated: Likely an infinite loop in insertion."
     return next_reference
 
@@ -95,7 +89,7 @@ class gene_pool:
         if gene_pool.state:
             gene_pool.state -= 1
             return []
-        gene_pool.state = randint(0,5)
+        gene_pool.state = randint(0, 5)
         return [new_dgc(STUB_GCG)]
 
 
@@ -139,7 +133,9 @@ for case, reqs in _CASE_REQS.items():
 
 
 # Generate all combinations of TGC & IGC for each case
-_CASE_COMBOS: list[tuple[Any, ...]] = [(i, case, *combo) for i, (case, variants) in enumerate(_CASE_VARIANTS.items()) for combo in product(*variants)]
+_CASE_COMBOS: list[tuple[Any, ...]] = [
+    (i, case, *combo) for i, (case, variants) in enumerate(_CASE_VARIANTS.items()) for combo in product(*variants)
+]
 _logger.debug(f"Case combos:\n{pformat(_CASE_COMBOS)}")
 
 
@@ -403,15 +399,20 @@ def new_xgc(xgc_variant: str) -> dGC:
 STUB_GCG = gc_graph(cast(ConnectionGraph, {"O": [["A", 0, ep_type_lookup["n2v"]["int"]], ["A", 1, ep_type_lookup["n2v"]["str"]]]}))
 CODON_INT_GCG_DICT: dict = {
     "A": [["I", 0, ep_type_lookup["n2v"]["int"]], ["I", 1, ep_type_lookup["n2v"]["int"]]],
-    "O": [["A", 0, ep_type_lookup["n2v"]["int"]]]
+    "O": [["A", 0, ep_type_lookup["n2v"]["int"]]],
 }
 CODON_STR_GCG_DICT: dict = {
     "A": [["I", 0, ep_type_lookup["n2v"]["str"]], ["I", 1, ep_type_lookup["n2v"]["str"]]],
-    "O": [["A", 0, ep_type_lookup["n2v"]["str"]]]
+    "O": [["A", 0, ep_type_lookup["n2v"]["str"]]],
 }
 CODON_MIX_GCG_DICT: dict = {
-    "A": [["I", 0, ep_type_lookup["n2v"]["str"]], ["I", 1, ep_type_lookup["n2v"]["str"]], ["I", 0, ep_type_lookup["n2v"]["int"]], ["I", 1, ep_type_lookup["n2v"]["int"]]],
-    "O": [["A", 0, ep_type_lookup["n2v"]["str"]]]
+    "A": [
+        ["I", 0, ep_type_lookup["n2v"]["str"]],
+        ["I", 1, ep_type_lookup["n2v"]["str"]],
+        ["I", 0, ep_type_lookup["n2v"]["int"]],
+        ["I", 1, ep_type_lookup["n2v"]["int"]],
+    ],
+    "O": [["A", 0, ep_type_lookup["n2v"]["str"]]],
 }
 CODON_INT_GCG = gc_graph(cast(ConnectionGraph, CODON_INT_GCG_DICT))
 CODON_STR_GCG = gc_graph(cast(ConnectionGraph, CODON_STR_GCG_DICT))
@@ -425,7 +426,7 @@ def mock_ips(_, __) -> dGC:
 
 def test_gc_insert_codon_case_2() -> None:
     """Test the gc_insert function.
-    
+
     This is a simple test that just checks the function does not raise an exception for case 2.
     It inserts a mock codon into another mock codon avoiding an steady state exception.
     """
@@ -439,7 +440,7 @@ def test_gc_insert_codon_case_2() -> None:
 
 def test_gc_insert_codon_case_3() -> None:
     """Test the gc_insert function.
-    
+
     This is a simple test that just checks the function does not raise an exception for case 3.
     It inserts a mock codon into another mock codon avoiding an steady state exception.
     """
@@ -453,7 +454,7 @@ def test_gc_insert_codon_case_3() -> None:
 
 def test_gc_stack_case_1() -> None:
     """Test the gc_stack function.
-    
+
     This is a simple test that just checks the function does not raise an exception for case 1.
     It inserts a mock codon into another mock codon avoiding an steady state exception.
     """
@@ -467,7 +468,7 @@ def test_gc_stack_case_1() -> None:
 
 def test_gc_stack_case_11() -> None:
     """Test the gc_stack function.
-    
+
     This is a simple test that just checks the function does not raise an exception for case 11.
     It inserts a mock codon into another mock codon avoiding an steady state exception.
     """
@@ -482,10 +483,10 @@ def test_gc_stack_case_11() -> None:
 def test_unstable_1_rgc(monkeypatch) -> None:
     """Test the unstable RGC path.
 
-       This can be triggered by inserting a codon into a codon with incompatible interfaces.
-       In this case no connections can be made to the inserted IGC from TGC[I]
+    This can be triggered by inserting a codon into a codon with incompatible interfaces.
+    In this case no connections can be made to the inserted IGC from TGC[I]
     """
-    monkeypatch.setattr(insertion, "_interface_proximity_select_fail_safe", lambda: (new_dgc(STUB_GCG), ))
+    monkeypatch.setattr(insertion, "_interface_proximity_select_fail_safe", lambda: (new_dgc(STUB_GCG),))
     codon_a: dGC = new_dgc(CODON_STR_GCG, True)
     codon_b: dGC = new_dgc(CODON_INT_GCG, True)
     rgc: xGC = gc_insert(_GMS, codon_a, codon_b, "A")  # type: ignore
@@ -495,11 +496,11 @@ def test_unstable_1_rgc(monkeypatch) -> None:
 def test_unstable_2_rgc(monkeypatch) -> None:
     """Test the unstable RGC path.
 
-       This can be triggered by inserting a codon into a codon with incompatible interfaces.
-       In this case some connections can be made to the inserted IGC from TGC[I] but not all
-       Existing connections will be passed through to FGC
+    This can be triggered by inserting a codon into a codon with incompatible interfaces.
+    In this case some connections can be made to the inserted IGC from TGC[I] but not all
+    Existing connections will be passed through to FGC
     """
-    monkeypatch.setattr(insertion, "_interface_proximity_select_fail_safe", lambda: (new_dgc(STUB_GCG), ))
+    monkeypatch.setattr(insertion, "_interface_proximity_select_fail_safe", lambda: (new_dgc(STUB_GCG),))
     codon_a: dGC = new_dgc(CODON_STR_GCG, True)
     codon_b: dGC = new_dgc(CODON_MIX_GCG, True)
     rgc: xGC = gc_insert(_GMS, codon_a, codon_b, "A")  # type: ignore
@@ -517,7 +518,7 @@ def test_gc_insert_all(monkeypatch, i, i_case, tgc_variant, igc_variant, above_r
     igc: dGC = new_xgc(igc_variant)
 
     # It is guaranteed some scenarios will generate a steady state exception.
-    monkeypatch.setattr(insertion, "_interface_proximity_select_fail_safe", lambda: (new_dgc(STUB_GCG), ))
+    monkeypatch.setattr(insertion, "_interface_proximity_select_fail_safe", lambda: (new_dgc(STUB_GCG),))
 
     # The FGC reference must be greater than this else it is not an FGC...
     new_base_ref: int = reference_func()
@@ -548,7 +549,7 @@ def test_gc_insert_all(monkeypatch, i, i_case, tgc_variant, igc_variant, above_r
 
     # If there was a steady state exception in the FGC the TGC in the new work package will
     # be the unstable FGC that matches the expected interface
-    fgc: insertion_work | aGC | None         
+    fgc: insertion_work | aGC | None
     fgc = i_work.fgc if i_work._fgc is None else i_work._fgc.tgc  # pylint: disable=protected-access
 
     # Iterate through RGC & FGC and make sure we have what we expect

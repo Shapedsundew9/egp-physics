@@ -46,9 +46,7 @@ def gc_remove(gms: gene_pool, tgc: aGC, row: Row) -> xGC:
     """
     rgc: dGC = clone(tgc, gms.next_reference, False)
     if _LOG_DEBUG:
-        _logger.debug(
-            f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(rgc['ref'])}"
-        )
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(rgc['ref'])}")
         _logger.debug(f"Removing row {row}.")
     rgc_igraph: internal_graph = internal_graph()
     rgc_igraph.update(tgc["gc_graph"].i_graph.copy_row("I"))
@@ -58,9 +56,7 @@ def gc_remove(gms: gene_pool, tgc: aGC, row: Row) -> xGC:
         rgc["gca_ref"] = tgc["gcb_ref"]
         rgc["gcb_ref"] = 0
         if tgc["gc_graph"].has_row("B"):
-            rgc_igraph.update(
-                tgc["gc_graph"].i_graph.move_row("B", "A", has_f=tgc["gc_graph"].has_row("F"))
-            )
+            rgc_igraph.update(tgc["gc_graph"].i_graph.move_row("B", "A", has_f=tgc["gc_graph"].has_row("F")))
     elif row == "B":
         rgc["gca_ref"] = tgc["gca_ref"]
         rgc_igraph.update(tgc["gc_graph"].i_graph.copy_row("A"))
@@ -94,9 +90,7 @@ def gc_remove_all_connections(gms: gene_pool, tgc: xGC) -> xGC:
     """
     dgc: dGC = clone(tgc, gms.next_reference)
     if _LOG_DEBUG:
-        _logger.debug(
-            f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}"
-        )
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}")
     dgc["gc_graph"].remove_all_connections()
     dgc["gc_graph"].normalize()
     return pgc_epilogue(gms, dgc)
@@ -123,9 +117,7 @@ def gc_add_input(gms: gene_pool, tgc: xGC) -> xGC:
     """
     dgc: dGC = clone(tgc, gms.next_reference)
     if _LOG_DEBUG:
-        _logger.debug(
-            f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}"
-        )
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}")
     dgc["gc_graph"].add_input()
     dgc["gc_graph"].normalize()
     return pgc_epilogue(gms, dgc)
@@ -152,9 +144,7 @@ def gc_remove_input(gms: gene_pool, tgc: xGC) -> xGC:
     """
     dgc: dGC = clone(tgc, gms.next_reference)
     if _LOG_DEBUG:
-        _logger.debug(
-            f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}"
-        )
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}")
     dgc["gc_graph"].remove_input()
     dgc["gc_graph"].normalize()
     return pgc_epilogue(gms, dgc)
@@ -181,9 +171,7 @@ def gc_add_output(gms: gene_pool, tgc: xGC) -> xGC:
     """
     dgc: dGC = clone(tgc, gms.next_reference)
     if _LOG_DEBUG:
-        _logger.debug(
-            f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}"
-        )
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}")
     dgc["gc_graph"].add_output()
     dgc["gc_graph"].normalize()
     return pgc_epilogue(gms, dgc)
@@ -210,9 +198,7 @@ def gc_remove_output(gms: gene_pool, tgc: xGC) -> xGC:
     """
     dgc: dGC = clone(tgc, gms.next_reference)
     if _LOG_DEBUG:
-        _logger.debug(
-            f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}"
-        )
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}")
     dgc["gc_graph"].remove_output()
     dgc["gc_graph"].normalize()
     return pgc_epilogue(gms, dgc)
@@ -239,9 +225,7 @@ def gc_remove_constant(gms: gene_pool, tgc: xGC) -> xGC:
     """
     dgc: dGC = clone(tgc, gms.next_reference)
     if _LOG_DEBUG:
-        _logger.debug(
-            f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}"
-        )
+        _logger.debug(f"Minimally cloned {ref_str(tgc['ref'])} to {ref_str(dgc['ref'])}")
     dgc["gc_graph"].remove_constant()
     dgc["gc_graph"].normalize()
     return pgc_epilogue(gms, dgc)

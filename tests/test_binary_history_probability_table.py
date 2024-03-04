@@ -90,12 +90,8 @@ _TEST_INIT_EXCEPTIONS: tuple[tuple[int, int, int, bool, bool, bool], ...] = (
 )
 
 
-@pytest.mark.parametrize(
-    "size, h_length, c_length, mwsp, defer, exception", _TEST_INIT_EXCEPTIONS
-)
-def test_bhpt_init(
-    size: int, h_length: int, c_length: int, mwsp: bool, defer: bool, exception: bool
-) -> None:
+@pytest.mark.parametrize("size, h_length, c_length, mwsp, defer, exception", _TEST_INIT_EXCEPTIONS)
+def test_bhpt_init(size: int, h_length: int, c_length: int, mwsp: bool, defer: bool, exception: bool) -> None:
     """Tests the BHPT initialization."""
     if exception:
         with pytest.raises(ValueError):
@@ -106,19 +102,11 @@ def test_bhpt_init(
 
 def test_bhpt_repr() -> None:
     """Tests the BHPT string representation."""
-    assert (
-        repr(bhpt(128, 64, 64, True))
-        == "binary_history_probability_table(size=128, h_length=64,c_length=64, mwsp=True, defer=False)"
-    )
-    assert (
-        repr(bhpt(12, 6, 6, False, True))
-        == "binary_history_probability_table(size=12, h_length=6,c_length=6, mwsp=False, defer=True)"
-    )
+    assert repr(bhpt(128, 64, 64, True)) == "binary_history_probability_table(size=128, h_length=64,c_length=64, mwsp=True, defer=False)"
+    assert repr(bhpt(12, 6, 6, False, True)) == "binary_history_probability_table(size=12, h_length=6,c_length=6, mwsp=False, defer=True)"
 
 
-@pytest.mark.parametrize(
-    "defer, bulk", ((False, False), (False, True), (True, False), (True, True))
-)
+@pytest.mark.parametrize("defer, bulk", ((False, False), (False, True), (True, False), (True, True)))
 def test_bhpt_stats(defer, bulk) -> None:
     """Tests the BHPT default statistics using an 8 state buffer.
 
@@ -140,18 +128,12 @@ def test_bhpt_stats(defer, bulk) -> None:
     frequencies: NDArray[int32] = zeros(256, dtype=int32)
     frequencies, _ = histogram(test_bhpt.get_many(2**23), bins=arange(257))
     weights: NDArray[float64] = frequencies / frequencies.max()
-    expected_frequencies = (
-        test_bhpt._h_table * test_bhpt._default_state_weights()
-    ).sum(axis=1)
-    expected_weights: NDArray[float64] = (
-        expected_frequencies / expected_frequencies.max()
-    )
+    expected_frequencies = (test_bhpt._h_table * test_bhpt._default_state_weights()).sum(axis=1)
+    expected_weights: NDArray[float64] = expected_frequencies / expected_frequencies.max()
     ratio = weights[1:] / expected_weights[1:]
     # plot
     if _LOG_DEBUG:
-        _logger.debug(
-            f"Ratio of selection frequency to default probability weights:\n{ratio}"
-        )
+        _logger.debug(f"Ratio of selection frequency to default probability weights:\n{ratio}")
         # plot(weights)
         # plot(expected_weights)
         # show()

@@ -66,9 +66,7 @@ def clone(gc_to_clone: aGC, ref: Callable[[], int], copy_graph: bool = True) -> 
         "ancestor_a_ref": gc_to_clone["ref"],
         "ancestor_b_ref": 0,
         # If gc is a codon then it does not have a GCA
-        "gca_ref": gc_to_clone["gca_ref"]
-        if gc_to_clone["gca_ref"]
-        else gc_to_clone["ref"],
+        "gca_ref": gc_to_clone["gca_ref"] if gc_to_clone["gca_ref"] else gc_to_clone["ref"],
         "gcb_ref": gc_to_clone["gcb_ref"],
         # More efficient than reconstructing
         "gc_graph": deepcopy(gc_to_clone["gc_graph"]) if copy_graph else gc_graph(),
@@ -191,9 +189,7 @@ def _pGC_fitness(pgc: pGC, delta_fitness: float, depth: int) -> float:
     """
     old_count: int = pgc["pgc_f_count"][depth]
     pgc["pgc_f_count"][depth] += 1
-    pgc["pgc_fitness"][depth] = (
-        old_count * pgc["pgc_fitness"][depth] + (delta_fitness / 2 + 0.5)
-    ) / pgc["pgc_f_count"][depth]
+    pgc["pgc_fitness"][depth] = (old_count * pgc["pgc_fitness"][depth] + (delta_fitness / 2 + 0.5)) / pgc["pgc_f_count"][depth]
     return delta_fitness
 
 
@@ -212,9 +208,7 @@ def _pGC_evolvability(pgc: pGC, delta_fitness: float, depth: int) -> None:
     increase: float = 0.0 if delta_fitness < 0 else delta_fitness
     old_count: int = pgc["pgc_e_count"][depth]
     pgc["pgc_e_count"][depth] += 1
-    pgc["pgc_evolvability"][depth] = (
-        old_count * pgc["pgc_evolvability"][depth] + increase
-    ) / pgc["pgc_e_count"][depth]
+    pgc["pgc_evolvability"][depth] = (old_count * pgc["pgc_evolvability"][depth] + increase) / pgc["pgc_e_count"][depth]
 
 
 def population_GC_evolvability(ggc: gGC, delta_fitness: float) -> None:
@@ -261,9 +255,7 @@ def evolve_physical(gms: gene_pool, pgc: pGC, depth: int) -> bool:
         result = wrapped_ppgc_callable((pgc,))
         if result is None:
             # pGC went pop - should not happen very often
-            _logger.warning(
-                f"ppGC {ref_str(pgc['ref'])} threw an exception when called."
-            )
+            _logger.warning(f"ppGC {ref_str(pgc['ref'])} threw an exception when called.")
             return False
         offspring = result[0]
         if _LOG_DEBUG:
@@ -336,13 +328,9 @@ def pGC_inherit(child, parent, pgc) -> None:
     pgc (pGC): pGC that operated on parent to product child.
     """
     # TODO: A better data structure would be quicker
-    child["pgc_fitness"] = [
-        f * _PGC_PARENTAL_PROTECTION_FACTOR for f in parent["pgc_fitness"]
-    ]
+    child["pgc_fitness"] = [f * _PGC_PARENTAL_PROTECTION_FACTOR for f in parent["pgc_fitness"]]
     child["pgc_f_count"] = [2] * NUM_PGC_LAYERS
-    child["pgc_evolvability"] = [
-        f * _PGC_PARENTAL_PROTECTION_FACTOR for f in parent["pgc_evolvability"]
-    ]
+    child["pgc_evolvability"] = [f * _PGC_PARENTAL_PROTECTION_FACTOR for f in parent["pgc_evolvability"]]
     child["pgc_e_count"] = [2] * NUM_PGC_LAYERS
 
     child["_pgc_fitness"] = [0.0] * NUM_PGC_LAYERS
@@ -381,9 +369,7 @@ def population_GC_inherit(child, parent, pgc):
         child["evolvability"] = parent["evolvability"]
         child["e_count"] = max((2, parent["e_count"] >> 1))
 
-    inherited_survivability = (
-        parent["survivability"] * _POPULATION_PARENTAL_PROTECTION_FACTOR
-    )
+    inherited_survivability = parent["survivability"] * _POPULATION_PARENTAL_PROTECTION_FACTOR
     inherited_fitness = parent["fitness"] * _POPULATION_PARENTAL_PROTECTION_FACTOR
     child["survivability"] = max((child["survivability"], inherited_survivability))
     child["fitness"] = max((child["fitness"], inherited_fitness))
