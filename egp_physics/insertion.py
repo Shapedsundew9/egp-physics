@@ -543,9 +543,9 @@ def gc_insert(gms: gene_pool, tgc: aGC, igc: aGC, above_row: Literal["I", "A", "
     new_gc_definition: NewGCDef
     _: insertion_work
     new_gc_definition, _ = _insert_gc(gms, tgc, igc, above_row)
-    gms.pool[new_gc_definition[0]["ref"]] = new_gc_definition[0]
-    gms.pool.update(new_gc_definition[1])
-    return gms.pool[new_gc_definition[0]["ref"]]
+    gms.cache[new_gc_definition[0]["ref"]] = new_gc_definition[0]
+    gms.cache.update(new_gc_definition[1])
+    return gms.cache[new_gc_definition[0]["ref"]]
 
 
 def gc_stack(gms: gene_pool, bottom_gc: aGC, top_gc: aGC, invert=False) -> xGC:
@@ -568,9 +568,9 @@ def gc_stack(gms: gene_pool, bottom_gc: aGC, top_gc: aGC, invert=False) -> xGC:
     new_gc_definition: NewGCDef
     _: insertion_work
     new_gc_definition, _ = _insert_gc(gms, bottom_gc, top_gc, ("I", "Z")[invert])
-    gms.pool[new_gc_definition[0]["ref"]] = new_gc_definition[0]
-    gms.pool.update(new_gc_definition[1])
-    return gms.pool[new_gc_definition[0]["ref"]]
+    gms.cache[new_gc_definition[0]["ref"]] = new_gc_definition[0]
+    gms.cache.update(new_gc_definition[1])
+    return gms.cache[new_gc_definition[0]["ref"]]
 
 
 def _interface_proximity_select_fail_safe() -> tuple[aGC, ...]:
