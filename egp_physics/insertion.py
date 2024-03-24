@@ -1,13 +1,15 @@
 """The operations that can be performed on a GC."""
 from copy import deepcopy
 from logging import DEBUG, Logger, NullHandler, getLogger
-from typing import Literal, LiteralString, cast, Callable
+from typing import Literal, LiteralString, cast
 from random import randint
 
 from egp_stores.gene_pool import gene_pool
 from egp_types.internal_graph import internal_graph
+from egp_types.genetic_code import genetic_code
 from egp_types.ep_type import interface_definition, vtype
 from egp_types.dGC import dGC
+from egp_types.gc_graph import gc_graph
 from egp_types.egp_typing import Row, VALID_ROW_SOURCES, DST_EP, SRC_EP
 from .egp_typing import NewGCDef, InsertRow
 from .insertion_work import insertion_work
@@ -186,8 +188,8 @@ def _insert_graph(tgcg: gc_graph, igcg: gc_graph, above_row: InsertRow) -> tuple
     -------
     rig, fig: Result internal graph and formed internal graph
     """
-    tig: internal_graph = tgcg.i_graph
-    iig: internal_graph = igcg.i_graph
+    tig: internal_graph = tgcg.igraph
+    iig: internal_graph = igcg.igraph
     fig: internal_graph = internal_graph()
 
     # TODO: There are opportunities to reduce overhead by making some internal_graph manipulation functions
@@ -233,16 +235,16 @@ def _insert_graph(tgcg: gc_graph, igcg: gc_graph, above_row: InsertRow) -> tuple
 
     # Pre-completed logging
     # if _LOG_DEBUG:
-    #    _logger.debug(f"tgc ({type(tgcg)}):\n{tgcg.i_graph}")
-    #    _logger.debug(f"igc ({type(tgcg)}):\n{igcg.i_graph}")
+    #    _logger.debug(f"tgc ({type(tgcg)}):\n{tgcg.igraph}")
+    #    _logger.debug(f"igc ({type(tgcg)}):\n{igcg.igraph}")
     #    _logger.debug(f"Pre-completed rig ({type(rig)}):\n{rig}")
     #    _logger.debug(f"Pre-completed fig ({type(fig)}):\n{fig}")
 
     # Tidy up dangling references and normalize (make new connections)
-    rgc_gc_graph = gc_graph(i_graph=rig)
+    rgc_gc_graph = gc_graph(igraph=rig)
     rgc_gc_graph.normalize()
     if fig:
-        fgc_gc_graph = gc_graph(i_graph=fig)
+        fgc_gc_graph = gc_graph(igraph=fig)
         fgc_gc_graph.normalize()
     else:
         fgc_gc_graph = gc_graph()
@@ -270,7 +272,7 @@ def _insert_graph(tgcg: gc_graph, igcg: gc_graph, above_row: InsertRow) -> tuple
     return rgc_gc_graph, fgc_gc_graph
 
 
-def _insert_gc(gms: gene_pool, tgc: aGC, igc: aGC, above_row: InsertRow, stabilize: bool = True) -> tuple[NewGCDef, insertion_work]:
+def _insert_gc(gms: gene_pool, tgc: genetic_code, igc: genetic_code, above_row: InsertRow, stabilize: bool = True) -> tuple[NewGCDef, insertion_work]:
     """Insert igc into tgc above row 'above_row'.
 
     Args
@@ -291,66 +293,66 @@ def _insert_gc(gms: gene_pool, tgc: aGC, igc: aGC, above_row: InsertRow, stabili
     return _recursive_insert_gc(gms, [insertion_work(tgc, igc, None, None, None, above_row)], stabilize)
 
 
-def _insert_gc_case_0(tgc: aGC, igc: aGC, rgc: aGC) -> bool | None:
+def _insert_gc_case_0(tgc: genetic_code, igc: genetic_code, rgc: dGC) -> bool | None:
     """Insert igc data into tgc case 0."""
     _logger.debug("Case 0: Stack")
-    rgc["gca_ref"] = tgc["ref"]
-    rgc["gcb_ref"] = igc["ref"]
+    rgc.gca = tgc
+    rgc.gcb = igc
     return None
 
 
-def _insert_gc_case_1(igc: aGC, rgc: aGC) -> bool | None:
+def _insert_gc_case_1(igc: genetic_code, rgc: dGC) -> bool | None:
     """Insert igc data into tgc case 1."""
     _logger.debug("Case 1")
-    rgc["gca_ref"] = igc["ref"]
+    rgc.gca = igc
     return None
 
 
-def _insert_gc_case_2(tgc: aGC, igc: aGC, rgc: aGC) -> bool | None:
+def _insert_gc_case_2(tgc: genetic_code, igc: genetic_code, rgc: dGC) -> bool | None:
     """Insert igc data into tgc case 2."""
     _logger.debug("Case 2")
-    rgc["gca_ref"] = igc["ref"]
+    rgc.gca = igc
     # TGC could be a codon in which case row A is in the graph but not in the GC
-    rgc["gcb_ref"] = tgc["gca_ref"] if tgc["gca_ref"] else tgc["ref"]
+    rgc.gcb = tgc["gca"] if tgc["gca"] else tgc
     return None
 
 
-def _insert_gc_case_3(tgc: aGC, igc: aGC, rgc: aGC) -> bool | None:
+def _insert_gc_case_3(tgc: genetic_code, igc: genetic_code, rgc: dGC) -> bool | None:
     """Insert igc data into tgc case 3."""
     _logger.debug("Case 3")
     # TGC could be a codon in which case row A is in the graph but not in the GC
-    rgc["gca_ref"] = tgc["gca_ref"] if tgc["gca_ref"] else tgc["ref"]
-    rgc["gcb_ref"] = igc["ref"]
+    rgc.gca = tgc["gca"] if tgc["gca"] else tgc
+    rgc.gcb = igc
     return None
 
 
-def _insert_gc_case_4(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> bool | None:
+def _insert_gc_case_4(tgc: genetic_code, igc: genetic_code, rgc: dGC, fgc: dGC) -> bool | None:
     """Insert igc data into tgc case 4 return True to indicate FGC is in GCA."""
     _logger.debug("Case 4 or 7")
-    fgc["gca_ref"] = igc["ref"]
-    fgc["gcb_ref"] = tgc["gca_ref"]
-    rgc["gca_ref"] = fgc["ref"]
-    rgc["gcb_ref"] = tgc["gcb_ref"]
+    fgc.gca = igc
+    fgc.gcb = tgc["gca"]
+    rgc.gca = fgc.placeholder_
+    rgc.gcb = tgc["gcb"]
     return True
 
 
-def _insert_gc_case_5(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> bool | None:
+def _insert_gc_case_5(tgc: genetic_code, igc: genetic_code, rgc: dGC, fgc: dGC) -> bool | None:
     """Insert igc data into tgc case 5 return False to indicate FGC is in GCB."""
     _logger.debug("Case 5 or 8")
-    fgc["gca_ref"] = tgc["gca_ref"]
-    fgc["gcb_ref"] = igc["ref"]
-    rgc["gca_ref"] = fgc["ref"]
-    rgc["gcb_ref"] = tgc["gcb_ref"]
+    fgc.gca = tgc["gca"]
+    fgc.gcb = igc
+    rgc.gca = fgc.placeholder_
+    rgc.gcb = tgc["gcb"]
     return False
 
 
-def _insert_gc_case_6(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> bool | None:
+def _insert_gc_case_6(tgc: genetic_code, igc: genetic_code, rgc: dGC, fgc: dGC) -> bool | None:
     """Insert igc data into tgc case 6 return False to indicate FGC is in GCB"""
     _logger.debug("Case 6 or 9")
-    fgc["gca_ref"] = tgc["gcb_ref"]
-    fgc["gcb_ref"] = igc["ref"]
-    rgc["gca_ref"] = tgc["gca_ref"]
-    rgc["gcb_ref"] = fgc["ref"]
+    fgc.gca = tgc["gcb"]
+    fgc.gcb = igc
+    rgc.gca = tgc["gca"]
+    rgc.gcb = fgc.placeholder_
     return False
 
 
@@ -360,21 +362,21 @@ _insert_gc_case_8 = _insert_gc_case_5
 _insert_gc_case_9 = _insert_gc_case_6
 
 
-def _insert_gc_case_10(tgc: aGC, igc: aGC, rgc: aGC, fgc: aGC) -> bool | None:
+def _insert_gc_case_10(tgc: genetic_code, igc: genetic_code, rgc: dGC, fgc: dGC) -> bool | None:
     """Insert igc data into tgc case 10 return False to indicate FGC is in GCB"""
     _logger.debug("Case 10")
-    rgc["gca_ref"] = tgc["gca_ref"]
-    rgc["gcb_ref"] = fgc["ref"]
-    fgc["gca_ref"] = igc["ref"]
-    fgc["gcb_ref"] = tgc["gcb_ref"]
+    rgc.gca = tgc["gca"]
+    rgc.gcb = fgc.placeholder_
+    fgc.gca = igc
+    fgc.gcb = tgc["gcb"]
     return False
 
 
-def _insert_gc_case_11(tgc: aGC, igc: aGC, rgc: aGC) -> bool | None:
+def _insert_gc_case_11(tgc: genetic_code, igc: genetic_code, rgc: dGC) -> bool | None:
     """Insert igc data into tgc case 11."""
     _logger.debug("Case 11: Inverse Stack")
-    rgc["gca_ref"] = igc["ref"]
-    rgc["gcb_ref"] = tgc["ref"]
+    rgc.gca = igc
+    rgc.gcb = tgc
     return None
 
 
@@ -400,18 +402,18 @@ def _recursive_insert_gc(gms: gene_pool, work_stack: list[insertion_work], stabl
         -------
         A new GC definition structure.
     """
-    fgc_dict: dict[int, aGC] = {}
-    new_tgc: dGC = default_dict_gc(int)
+    fgc_dict: dict[int, dGC] = {}
+    new_tgc: dGC = dGC(gcc=gms.cache)
     original_work: insertion_work = work_stack[0] if work_stack else insertion_work(new_tgc, new_tgc, None, None, None, "A")
     while work_stack:
         if _LOG_DEBUG:
             _logger.debug(f"Work stack depth: {len(work_stack)}")
 
-        fgc: dGC = default_dict_gc(gms.next_reference)
-        rgc: dGC = default_dict_gc(gms.next_reference)
+        fgc: dGC = dGC(gcc=gms.cache)
+        rgc: dGC = dGC(gcc=gms.cache)
         work: insertion_work = work_stack.pop(0)
-        tgc: aGC = work.tgc
-        igc: aGC = work.igc
+        tgc: genetic_code = work.tgc
+        igc: genetic_code = work.igc
         above_row = work.above_row
 
         if _LOG_DEBUG:
@@ -429,21 +431,21 @@ def _recursive_insert_gc(gms: gene_pool, work_stack: list[insertion_work], stabl
         fgcg_stable: bool = False
         if fgcg:
             fgcg_stable = fgcg.is_stable()
-            # _logger.debug(f"Normalized fgc:\n{fgcg.i_graph}")
+            # _logger.debug(f"Normalized fgc:\n{fgcg.igraph}")
             fgc["graph"] = fgcg.app_graph
             fgc["gc_graph"] = fgcg
-            fgc["ancestor_a_ref"] = igc["ref"]
-            fgc["ancestor_b_ref"] = tgc["ref"]
-            # _logger.debug(f"Normalized rgc:\n{rgcg.i_graph}")
+            fgc["ancestor_a_ref"] = igc
+            fgc["ancestor_b_ref"] = tgc
+            # _logger.debug(f"Normalized rgc:\n{rgcg.igraph}")
         rgc["graph"] = rgcg.app_graph
         rgc["gc_graph"] = rgcg
-        rgc["ancestor_a_ref"] = tgc["ref"]
-        rgc["ancestor_b_ref"] = igc["ref"]
+        rgc["ancestor_a_ref"] = tgc
+        rgc["ancestor_b_ref"] = igc
 
         # Insert into the GC
         # The insert_gc is always referenced in the tree of the final rgc
-        fgc_dict[igc["ref"]] = igc
-        fgc_dict[tgc["ref"]] = tgc
+        fgc_dict[igc] = igc
+        fgc_dict[tgc] = tgc
         fgc_in_gca: bool | None = None
         if above_row == "I":
             fgc_in_gca = _insert_gc_case_0(tgc, igc, rgc)
@@ -492,14 +494,14 @@ def _recursive_insert_gc(gms: gene_pool, work_stack: list[insertion_work], stabl
         else:
             work.rgc = rgc
 
-    work_dict: dict[int, aGC] = original_work.resolve()
+    work_dict: dict[int, dGC] = original_work.resolve()
     if _LOG_DEBUG:
         _logger.debug(f"Original work:\n{original_work}")
 
     return (original_work.rgc, work_dict), original_work  # type: ignore
 
 
-def gc_insert(gms: gene_pool, tgc: aGC, igc: aGC, above_row: Literal["I", "A", "B", "O"]) -> xGC:
+def gc_insert(gms: gene_pool, tgc: genetic_code, igc: genetic_code, above_row: Literal["I", "A", "B", "O"]) -> xGC:
     """Insert insert_gc into target_gc above row 'above_row'.
 
     If insert_gc is None then the target_gc is assessed for stability. If it
@@ -528,7 +530,7 @@ def gc_insert(gms: gene_pool, tgc: aGC, igc: aGC, above_row: Literal["I", "A", "
     return gms.cache[new_gc_definition[0]["ref"]]
 
 
-def gc_stack(gms: gene_pool, bottom_gc: aGC, top_gc: aGC, invert=False) -> xGC:
+def gc_stack(gms: gene_pool, bottom_gc: dGC, top_gc: dGC, invert=False) -> xGC:
     """Stack two GC's.
 
     top_gc is stacked on top of bottom_gc to create a new gc.
@@ -553,12 +555,12 @@ def gc_stack(gms: gene_pool, bottom_gc: aGC, top_gc: aGC, invert=False) -> xGC:
     return gms.cache[new_gc_definition[0]["ref"]]
 
 
-def _interface_proximity_select_fail_safe() -> tuple[aGC, ...]:
+def _interface_proximity_select_fail_safe() -> tuple[dGC, ...]:
     """This function exists to be mocked in testing"""
     raise RuntimeError("No candidates found for interface proximity selection.")
 
 
-def interface_proximity_select(gms: gene_pool, xputs: dict[str, bytes | list | str]) -> aGC:
+def interface_proximity_select(gms: gene_pool, xputs: dict[str, bytes | list | str]) -> dGC:
     """Select a genetic code to at least partially connect inputs to outputs.
 
     The selection is weighted random based on the suitability of the candidates
@@ -600,7 +602,7 @@ def interface_proximity_select(gms: gene_pool, xputs: dict[str, bytes | list | s
 
     Returns
     -------
-    aGC
+    dGC
     """
     # TODO: Lots of short queries is inefficient. Ideas:
     #   a) Specific query support from GPC (interface hash)
@@ -613,21 +615,21 @@ def interface_proximity_select(gms: gene_pool, xputs: dict[str, bytes | list | s
     # TODO: Radical idea: Above is for truely random GC selection. Rare events. In general 'nearby' GCs
     #   will be close relations in the gene pool.
     match_t: int = randint(0, _NUM_MATCH_TYPES - 1)
-    agc = tuple(gms.select(_MATCH_TYPES_SQL[match_t], literals=xputs))
-    while not agc and match_t < _NUM_MATCH_TYPES - 1:
+    dGC = tuple(gms.select(_MATCH_TYPES_SQL[match_t], literals=xputs))
+    while not dGC and match_t < _NUM_MATCH_TYPES - 1:
         if _LOG_DEBUG:
             _logger.debug(f"Proximity selection match_type {match_t} found no candidates.")
         match_t += 1
-        agc = tuple(gms.select(_MATCH_TYPES_SQL[match_t], literals=xputs))
-    if not agc and match_t == _NUM_MATCH_TYPES - 1:
-        agc = _interface_proximity_select_fail_safe()
+        dGC = tuple(gms.select(_MATCH_TYPES_SQL[match_t], literals=xputs))
+    if not dGC and match_t == _NUM_MATCH_TYPES - 1:
+        dGC = _interface_proximity_select_fail_safe()
     if _LOG_DEBUG:
         _logger.debug(f"Proximity selection match_type {match_t} found a candidate.")
-        _logger.debug(f"Candidate: {agc[0]}")
-    return agc[0]
+        _logger.debug(f"Candidate: {dGC[0]}")
+    return dGC[0]
 
 
-def steady_state_exception(gms: gene_pool, fgc: aGC) -> insertion_work:
+def steady_state_exception(gms: gene_pool, fgc: dGC) -> insertion_work:
     """Define what GC must be inserted to complete or partially complete the fgc graph.
 
     fgc is analysed to determine what end point destinations are unconnected and the highest row
@@ -646,14 +648,14 @@ def steady_state_exception(gms: gene_pool, fgc: aGC) -> insertion_work:
     # Find unconnected destination endpoints. Determine highest row & endpoint types.
     above_row: str = "Z"
     outputs: list[int] = []
-    for ep in fgc_graph.i_graph.dst_unref_filter():
+    for ep in fgc_graph.igraph.dst_unref_filter():
         if ep.row < above_row:
             above_row = ep.row
         outputs.append(ep.typ)
 
     # Find viable source types above the highest row.
     inputs: list[int] = [
-        ep.typ for ep in fgc_graph.i_graph.src_rows_filter(VALID_ROW_SOURCES[fgc["gc_graph"].has_row("F")][cast(Row, above_row)])
+        ep.typ for ep in fgc_graph.igraph.src_rows_filter(VALID_ROW_SOURCES[fgc["gc_graph"].has_row("F")][cast(Row, above_row)])
     ]
 
     xputs: dict[str, bytes | list | str] = {
@@ -664,5 +666,5 @@ def steady_state_exception(gms: gene_pool, fgc: aGC) -> insertion_work:
     _, xputs["otypes"], xputs["oidx"] = interface_definition(outputs, vtype.EP_TYPE_INT)
 
     # Find a gc based on the criteria
-    insert_gc: aGC = interface_proximity_select(gms, xputs)
+    insert_gc: dGC = interface_proximity_select(gms, xputs)
     return insertion_work(fgc, insert_gc, None, None, None, cast(InsertRow, above_row))
