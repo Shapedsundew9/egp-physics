@@ -5,14 +5,10 @@ from typing import Literal, LiteralString, cast, Callable
 from random import randint
 
 from egp_stores.gene_pool import gene_pool
-from egp_types.xGC import xGC
-from egp_types.gc_graph import DST_EP, SRC_EP, gc_graph
 from egp_types.internal_graph import internal_graph
-from egp_types.reference import ref_str
 from egp_types.ep_type import interface_definition, vtype
-from egp_types.aGC import aGC
 from egp_types.dGC import dGC
-from egp_types.egp_typing import Row, VALID_ROW_SOURCES
+from egp_types.egp_typing import Row, VALID_ROW_SOURCES, DST_EP, SRC_EP
 from .egp_typing import NewGCDef, InsertRow
 from .insertion_work import insertion_work
 
@@ -20,10 +16,6 @@ from .insertion_work import insertion_work
 _logger: Logger = getLogger(__name__)
 _logger.addHandler(NullHandler())
 _LOG_DEBUG: bool = _logger.isEnabledFor(DEBUG)
-
-
-# Filler
-_EMPTY_GC_GRAPH = gc_graph()
 
 
 # Steady state exception filters.
@@ -70,18 +62,6 @@ _NUM_MATCH_TYPES: int = len(_MATCH_TYPES_SQL)
 if _LOG_DEBUG:
     for i, match_type in enumerate(_MATCH_TYPES_SQL):
         _logger.debug(f"Match type {i} SQL: {match_type}")
-
-
-def default_dict_gc(ref: Callable[[], int]) -> dGC:
-    """Create a default dGC with ref generated from ref()."""
-    return {
-        "gc_graph": _EMPTY_GC_GRAPH,
-        "ancestor_a_ref": 0,
-        "ancestor_b_ref": 0,
-        "ref": ref(),
-        "gca_ref": 0,
-        "gcb_ref": 0,
-    }
 
 
 def _insert_graph_case_0(tig: internal_graph, iig: internal_graph, rig: internal_graph) -> None:
